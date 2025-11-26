@@ -86,6 +86,11 @@ st.markdown("""
         color: #f57c00;
     }
     
+    .badge-super-admin {
+        background: #fce4ec;
+        color: #c2185b;
+    }
+    
     .stButton>button {
         width: 100%;
         border-radius: 8px;
@@ -134,8 +139,7 @@ def initialize_data():
             "superadmin": {
                 "password": hash_password("admin123"),  # Change this!
                 "role": "super_admin",
-                "name": "Super Administrator",
-                "email": "admin@empowerinternational.edu"
+                "name": "Super Administrator"
             }
         }
         save_json(USERS_FILE, users)
@@ -220,8 +224,21 @@ def get_messages(recipient=None, role=None):
     if role:
         messages = [m for m in messages if m["sender_role"] == role or m["recipient"] == "all_school"]
     
-    # Sort by timestamp (newest first)
-    messages.sort(key=lambda x: x["timestamp"], reverse=True)
+    # Sort by engagement score (reactions + recency)
+    def calculate_engagement_score(msg):
+        # Get total reactions
+        reactions = msg.get("reactions", {})
+        total_reactions = sum(len(users) for users in reactions.values())
+        
+        # Calculate time decay (newer = higher score)
+        msg_time = datetime.fromisoformat(msg["timestamp"])
+        hours_old = (datetime.now() - msg_time).total_seconds() / 3600
+        time_score = max(0, 100 - (hours_old * 2))  # Decays over time
+        
+        # Combined score: reactions * 10 + time_score
+        return (total_reactions * 10) + time_score
+    
+    messages.sort(key=calculate_engagement_score, reverse=True)
     return messages
 
 def flag_message(message_id, reason):
@@ -283,7 +300,8 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         "student": "badge-student",
         "teacher": "badge-teacher",
         "senator": "badge-senator",
-        "super_admin": "badge-admin"
+        "admin": "badge-admin",
+        "super_admin": "badge-super-admin"
     }
     badge_class = role_badges.get(message["sender_role"], "badge-student")
     
@@ -373,8 +391,13 @@ def student_interface(user_info):
             recipient = st.selectbox(
                 "Send To",
                 ["all_school", "senate"],
-                format_func=lambda x: "Whole School" if x == "all_school" else "Senate"
+                format_func=lambda x: {
+                    "all_school": "Whole School",
+                    "senate": "Senate"
+                }[x]
             )
+            
+            st.info("💡 **Tip:** To reach teachers or administration, send to 'Whole School' or contact the Senate who can forward your message.")
             
             st.info("⚠️ Note: Anonymous messages can be traced by administration if they violate community guidelines.")
         
@@ -420,14 +443,22 @@ def student_interface(user_info):
                 st.rerun()
     
     with tab3:
-        st.markdown("### School Messages")
+        st.markdown("### 📱 School Feed")
+        st.caption("Messages sorted by engagement - most popular and recent first")
+        
         messages = get_messages(recipient="all_school")
         
         if messages:
-            for msg in messages:
-                render_message_card(msg, user_id=user_info["username"])
+            # Infinite scroll style - show messages in a continuous feed
+            for idx, msg in enumerate(messages):
+                with st.container():
+                    render_message_card(msg, user_id=user_info["username"])
+                    
+                    # Add spacing between messages
+                    if idx < len(messages) - 1:
+                        st.markdown("<br>", unsafe_allow_html=True)
         else:
-            st.info("No messages yet. Be the first to share your voice!")
+            st.info("📭 No messages yet. Be the first to share your voice!")
 
 def teacher_interface(user_info):
     """Teacher interface"""
@@ -447,11 +478,11 @@ def teacher_interface(user_info):
         
         recipient = st.selectbox(
             "Send To",
-            ["all_school", "admin", "senate"],
+            ["all_school", "senate", "super_admin"],
             format_func=lambda x: {
                 "all_school": "Whole School",
-                "admin": "Administration",
-                "senate": "Senate"
+                "senate": "Senate",
+                "super_admin": "Super Admin"
             }[x]
         )
         
@@ -470,14 +501,20 @@ def teacher_interface(user_info):
                 st.error("❌ Please enter a message")
     
     with tab2:
-        st.markdown("### School Messages")
+        st.markdown("### 📱 School Feed")
+        st.caption("Messages sorted by engagement - most popular and recent first")
+        
         messages = get_messages(recipient="all_school")
         
         if messages:
-            for msg in messages:
-                render_message_card(msg, user_id=user_info.get("name", user_info["username"]))
+            for idx, msg in enumerate(messages):
+                with st.container():
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]))
+                    
+                    if idx < len(messages) - 1:
+                        st.markdown("<br>", unsafe_allow_html=True)
         else:
-            st.info("No messages available")
+            st.info("📭 No messages available")
 
 def senator_interface(user_info):
     """Senator interface"""
@@ -500,11 +537,11 @@ def senator_interface(user_info):
         with col2:
             recipient = st.selectbox(
                 "Send To",
-                ["all_school", "senate", "admin"],
+                ["all_school", "senate", "super_admin"],
                 format_func=lambda x: {
                     "all_school": "Whole School",
                     "senate": "Senate Only",
-                    "admin": "Administration"
+                    "super_admin": "Super Admin"
                 }[x]
             )
             
@@ -516,7 +553,7 @@ def senator_interface(user_info):
             )
             
             if recipient != "all_school":
-                st.info("ℹ️ Messages to Senate and Admin are not anonymous")
+                st.info("ℹ️ Messages to Senate and Super Admin are not anonymous")
         
         if st.button("📤 Send Message", type="primary"):
             if message_content.strip():
@@ -550,16 +587,78 @@ def senator_interface(user_info):
             st.info("No senate messages yet")
     
     with tab3:
-        st.markdown("### School Messages")
+        st.markdown("### 📱 School Feed")
+        st.caption("Messages sorted by engagement - most popular and recent first")
+        
         messages = get_messages(recipient="all_school")
         
         if messages:
-            for msg in messages:
-                render_message_card(msg, user_id=user_info.get("name", user_info["username"]))
+            for idx, msg in enumerate(messages):
+                with st.container():
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]))
+                    
+                    if idx < len(messages) - 1:
+                        st.markdown("<br>", unsafe_allow_html=True)
         else:
-            st.info("No school messages yet")
+            st.info("📭 No school messages yet")
 
 def admin_interface(user_info):
+    """Admin interface - similar to teacher with additional viewing capabilities"""
+    st.subheader("🏢 Administration Panel")
+    
+    tab1, tab2 = st.tabs(["Send Message", "View Messages"])
+    
+    with tab1:
+        st.markdown("### Send a Message")
+        st.info("📢 Administrators must identify themselves - all messages are sent with your name")
+        
+        message_content = st.text_area(
+            "Your Message",
+            placeholder="Share announcements, feedback, or information...",
+            height=150
+        )
+        
+        recipient = st.selectbox(
+            "Send To",
+            ["all_school", "senate", "super_admin"],
+            format_func=lambda x: {
+                "all_school": "Whole School",
+                "senate": "Senate",
+                "super_admin": "Super Admin"
+            }[x]
+        )
+        
+        if st.button("📤 Send Message", type="primary"):
+            if message_content.strip():
+                create_message(
+                    sender_id=user_info.get("name", user_info["username"]),
+                    sender_role="admin",
+                    content=message_content,
+                    recipient=recipient,
+                    is_anonymous=False
+                )
+                st.success("✅ Message sent successfully!")
+                st.rerun()
+            else:
+                st.error("❌ Please enter a message")
+    
+    with tab2:
+        st.markdown("### 📱 School Feed")
+        st.caption("Messages sorted by engagement - most popular and recent first")
+        
+        messages = get_messages(recipient="all_school")
+        
+        if messages:
+            for idx, msg in enumerate(messages):
+                with st.container():
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]))
+                    
+                    if idx < len(messages) - 1:
+                        st.markdown("<br>", unsafe_allow_html=True)
+        else:
+            st.info("📭 No messages available")
+
+def super_admin_interface(user_info):
     """Super admin interface"""
     st.subheader("👑 Super Admin Dashboard")
     
@@ -568,14 +667,47 @@ def admin_interface(user_info):
     with tab1:
         st.markdown("### All Platform Messages")
         
+        # Add explanation of flagging
+        with st.expander("❓ What does 'Flagging' mean?"):
+            st.markdown("""
+            ### 🚩 Message Flagging System
+            
+            **What is flagging?**
+            Flagging is a moderation tool that allows the Super Admin to mark messages that may violate community guidelines.
+            
+            **Why flag a message?**
+            Messages should be flagged if they contain:
+            - 🚫 **Abusive language** or personal attacks
+            - 💔 **Bullying or harassment** of any individual or group
+            - 🤬 **Profanity or offensive content**
+            - 😡 **Hate speech** or discrimination
+            - ⚠️ **False information** intended to mislead
+            - 🔥 **Content that could incite conflicts** or arguments
+            
+            **What happens when a message is flagged?**
+            - The message is **marked with a red warning**
+            - The **reason for flagging is displayed** to all users
+            - The message **remains visible** but highlighted as concerning
+            - The **sender's real identity is revealed** to the Super Admin (even if anonymous)
+            - Super Admin can take further action if needed
+            
+            **Important Notes:**
+            - ✅ Flagging helps maintain a **safe and respectful** environment
+            - ⚖️ It's not about censorship, but about **accountability**
+            - 🛡️ This protects all community members from harmful content
+            - 📋 Students should follow **community guidelines** to avoid having messages flagged
+            """)
+        
+        st.markdown("---")
+        
         filter_recipient = st.selectbox(
             "Filter by Recipient",
-            ["all", "all_school", "senate", "admin"],
+            ["all", "all_school", "senate", "super_admin"],
             format_func=lambda x: {
                 "all": "All Messages",
                 "all_school": "School Messages",
                 "senate": "Senate Messages",
-                "admin": "Admin Messages"
+                "super_admin": "Super Admin Messages"
             }[x]
         )
         
@@ -609,7 +741,7 @@ def admin_interface(user_info):
         if messages:
             st.warning(f"⚠️ {len(messages)} flagged message(s) requiring attention")
             for msg in messages:
-                render_message_card(msg, show_sender_id=True)
+                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False)
         else:
             st.success("✅ No flagged messages")
     
@@ -620,8 +752,7 @@ def admin_interface(user_info):
             new_username = st.text_input("Username")
             new_password = st.text_input("Password", type="password")
             new_name = st.text_input("Full Name")
-            new_email = st.text_input("Email")
-            new_role = st.selectbox("Role", ["student", "teacher", "senator"])
+            new_role = st.selectbox("Role", ["student", "teacher", "senator", "admin"])
             
             if st.button("Create User"):
                 if new_username and new_password:
@@ -630,15 +761,14 @@ def admin_interface(user_info):
                         users[new_username] = {
                             "password": hash_password(new_password),
                             "role": new_role,
-                            "name": new_name,
-                            "email": new_email
+                            "name": new_name
                         }
                         save_json(USERS_FILE, users)
                         st.success(f"✅ User {new_username} created successfully!")
                     else:
                         st.error("❌ Username already exists")
                 else:
-                    st.error("❌ Please fill in all fields")
+                    st.error("❌ Please fill in all required fields")
         
         # List all users
         st.markdown("### Registered Users")
@@ -676,6 +806,27 @@ def admin_interface(user_info):
         
         for role, count in role_counts.items():
             st.markdown(f"- **{role.replace('_', ' ').title()}**: {count} messages")
+        
+        # Reaction analytics
+        st.markdown("### Reaction Analytics")
+        total_reactions = 0
+        reaction_counts = {"👍": 0, "❤️": 0, "💡": 0, "👏": 0, "🤔": 0}
+        
+        for msg in messages:
+            reactions = msg.get("reactions", {})
+            for emoji, users in reactions.items():
+                count = len(users)
+                total_reactions += count
+                if emoji in reaction_counts:
+                    reaction_counts[emoji] += count
+        
+        st.metric("Total Reactions", total_reactions)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        cols = [col1, col2, col3, col4, col5]
+        for idx, (emoji, count) in enumerate(reaction_counts.items()):
+            with cols[idx]:
+                st.metric(emoji, count)
 
 # ============================================================================
 # MAIN APPLICATION
@@ -740,6 +891,22 @@ def main():
             - No profanity or offensive language
             - Focus on solutions, not just problems
             - Respect anonymity of others
+            
+            ---
+            
+            ### 🚩 About Message Flagging
+            
+            Messages may be **flagged** by the Super Admin if they:
+            - Contain abusive or offensive content
+            - Violate community guidelines
+            - Could harm or mislead others
+            
+            **Flagged messages:**
+            - Are marked with a red warning
+            - Show the reason for flagging
+            - Reveal sender identity to Super Admin
+            
+            Always communicate respectfully! 🤝
             """)
         
         # Main content based on role
@@ -751,8 +918,10 @@ def main():
             teacher_interface(user_info)
         elif role == "senator":
             senator_interface(user_info)
-        elif role == "super_admin":
+        elif role == "admin":
             admin_interface(user_info)
+        elif role == "super_admin":
+            super_admin_interface(user_info)
 
 if __name__ == "__main__":
     main()
