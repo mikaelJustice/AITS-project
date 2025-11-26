@@ -277,6 +277,72 @@ def add_reaction(message_id, user_id, emoji):
             return True
     return False
 
+def add_comment(message_id, user_id, username, content, user_role, is_anonymous=False, anonymous_name=None):
+    """Add a comment to a message"""
+    messages_data = load_json(MESSAGES_FILE)
+    for msg in messages_data["messages"]:
+        if msg["id"] == message_id:
+            # Initialize comments if not present
+            if "comments" not in msg:
+                msg["comments"] = []
+            
+            comment = {
+                "id": secrets.token_hex(6),
+                "user_id": user_id,
+                "username": username,
+                "content": content,
+                "role": user_role,
+                "is_anonymous": is_anonymous,
+                "anonymous_name": anonymous_name if is_anonymous else username,
+                "timestamp": datetime.now().isoformat(),
+                "reactions": {
+                    "👍": [],
+                    "❤️": [],
+                    "😂": [],
+                    "😢": []
+                }
+            }
+            msg["comments"].append(comment)
+            save_json(MESSAGES_FILE, messages_data)
+            return True
+    return False
+
+def delete_comment(message_id, comment_id, user_id, user_role):
+    """Delete a comment - user can delete their own, super admin can delete any"""
+    messages_data = load_json(MESSAGES_FILE)
+    for msg in messages_data["messages"]:
+        if msg["id"] == message_id:
+            if "comments" not in msg:
+                return False
+            for idx, comment in enumerate(msg["comments"]):
+                if comment["id"] == comment_id:
+                    is_owner = comment["user_id"] == user_id
+                    is_super_admin = user_role == "super_admin"
+                    if is_owner or is_super_admin:
+                        msg["comments"].pop(idx)
+                        save_json(MESSAGES_FILE, messages_data)
+                        return True
+    return False
+
+def add_comment_reaction(message_id, comment_id, user_id, emoji):
+    """Add reaction to a comment"""
+    messages_data = load_json(MESSAGES_FILE)
+    for msg in messages_data["messages"]:
+        if msg["id"] == message_id:
+            if "comments" not in msg:
+                return False
+            for comment in msg["comments"]:
+                if comment["id"] == comment_id:
+                    if "reactions" not in comment:
+                        comment["reactions"] = {"👍": [], "❤️": [], "😂": [], "😢": []}
+                    if user_id in comment["reactions"][emoji]:
+                        comment["reactions"][emoji].remove(user_id)
+                    else:
+                        comment["reactions"][emoji].append(user_id)
+                    save_json(MESSAGES_FILE, messages_data)
+                    return True
+    return False
+
 def delete_message(message_id, user_id, user_role):
     """Delete a message - users can delete their own, super admin can delete any"""
     messages_data = load_json(MESSAGES_FILE)
@@ -360,7 +426,124 @@ def render_header():
     </div>
     """, unsafe_allow_html=True)
 
-def render_message_card(message, show_sender_id=False, user_id=None, show_reactions=True, user_role=None):
+def render_comments(message, user_id, user_name, user_role):
+    """Render comments section like Facebook/Instagram"""
+    comments = message.get("comments", [])
+    message_id = message["id"]
+    
+    st.markdown("---")
+    st.markdown(f"### 💬 Comments ({len(comments)})")
+    
+    # Add comment form
+    st.markdown("**Add your comment:**")
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        comment_text = st.text_area(
+            "Write a comment...",
+            placeholder="Share your thoughts...",
+            height=60,
+            key=f"comment_input_{message_id}",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        col2a, col2b = st.columns(2)
+        with col2a:
+            is_anon_comment = st.checkbox(
+                "Anonymous",
+                value=False,
+                key=f"anon_comment_{message_id}"
+            )
+        with col2b:
+            if st.button("Post", key=f"post_comment_{message_id}", type="primary"):
+                if comment_text.strip():
+                    anon_name = None
+                    if is_anon_comment:
+                        anon_name = get_or_create_anonymous_name(user_id)
+                    add_comment(
+                        message_id,
+                        user_id,
+                        user_name,
+                        comment_text.strip(),
+                        user_role,
+                        is_anonymous=is_anon_comment,
+                        anonymous_name=anon_name
+                    )
+                    st.success("✅ Comment posted!")
+                    st.rerun()
+                else:
+                    st.error("Please write a comment")
+    
+    st.markdown("---")
+    
+    # Display comments
+    if comments:
+        for idx, comment in enumerate(comments):
+            with st.container():
+                # Comment header
+                col1, col2, col3 = st.columns([3, 1, 1])
+                
+                with col1:
+                    comment_display = comment["anonymous_name"] if comment["is_anonymous"] else comment["username"]
+                    role_badges = {
+                        "student": "🎓",
+                        "teacher": "👨‍🏫",
+                        "senator": "🏛️",
+                        "admin": "🏢",
+                        "super_admin": "👑"
+                    }
+                    role_emoji = role_badges.get(comment["role"], "👤")
+                    
+                    st.markdown(
+                        f"**{role_emoji} {comment_display}** "
+                        f"({'Anonymous' if comment['is_anonymous'] else 'Verified'})"
+                    )
+                
+                # Delete button
+                is_comment_owner = comment["user_id"] == user_id
+                is_super_admin = user_role == "super_admin"
+                
+                if is_comment_owner or is_super_admin:
+                    with col3:
+                        if st.button(
+                            "🗑️",
+                            key=f"del_comment_{message_id}_{comment['id']}",
+                            help="Delete comment"
+                        ):
+                            if delete_comment(message_id, comment["id"], user_id, user_role):
+                                st.success("Comment deleted")
+                                st.rerun()
+                
+                # Comment content and time
+                comment_time = datetime.fromisoformat(comment["timestamp"]).strftime("%b %d, %I:%M %p")
+                st.markdown(f"{comment['content']}")
+                st.caption(comment_time)
+                
+                # Comment reactions
+                reactions = comment.get("reactions", {"👍": [], "❤️": [], "😂": [], "😢": []})
+                reaction_cols = st.columns(4)
+                
+                for r_idx, (emoji, users) in enumerate(reactions.items()):
+                    with reaction_cols[r_idx]:
+                        count = len(users)
+                        has_reacted = user_id in users
+                        button_type = "primary" if has_reacted else "secondary"
+                        
+                        if st.button(
+                            f"{emoji} {count}",
+                            key=f"comment_react_{message_id}_{comment['id']}_{emoji}",
+                            type=button_type,
+                            use_container_width=True
+                        ):
+                            add_comment_reaction(message_id, comment["id"], user_id, emoji)
+                            st.rerun()
+                
+                st.divider()
+    else:
+        st.info("No comments yet. Be the first to comment!")
+
+def render_message_card(message, show_sender_id=False, user_id=None, show_reactions=True, user_role=None, enable_comments=True, user_info=None):
     """Render a message card"""
     flagged_class = "flagged" if message.get("flagged", False) else ""
     
@@ -409,12 +592,17 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         # Delete button for owner or super admin
         if is_owner or is_super_admin:
             with col2:
-                if st.button(" Delete", key=f"delete_{message['id']}", type="secondary"):
+                if st.button(
+                    "🗑️ Delete",
+                    key=f"delete_msg_{message['id']}",
+                    type="secondary",
+                    use_container_width=True
+                ):
                     if delete_message(message['id'], user_id, user_role or ""):
-                        st.success(" Message deleted")
+                        st.success("✅ Message deleted")
                         st.rerun()
                     else:
-                        st.error(" Could not delete message")
+                        st.error("❌ Could not delete message")
     
     # Add reactions section
     if show_reactions and user_id:
@@ -435,11 +623,28 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
                 has_reacted = user_id in users
                 button_type = "primary" if has_reacted else "secondary"
                 
-                if st.button(f"{emoji} {count}", key=f"react_{message['id']}_{emoji}", type=button_type):
+                if st.button(
+                    f"{emoji} {count}",
+                    key=f"react_msg_{message['id']}_{emoji}",
+                    type=button_type,
+                    use_container_width=True
+                ):
                     add_reaction(message['id'], user_id, emoji)
                     st.rerun()
-        
-        st.markdown("---")
+    
+    # Add comments section
+    if enable_comments and user_id and user_info:
+        render_comments(message, user_id, user_info.get("name", user_info["username"]), user_role)
+
+def render_header():
+    """Render the main header"""
+    st.markdown("""
+    <div class="main-header">
+        <h1>🎓 Empower International Academy</h1>
+        <h2>Voice Platform - Empowering Student Expression</h2>
+        <p>Share your ideas, concerns, and feedback safely and responsibly</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ============================================================================
 # ROLE-SPECIFIC INTERFACES
@@ -548,7 +753,7 @@ def student_interface(user_info):
             # Infinite scroll style - show messages in a continuous feed
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info["username"], user_role="student")
+                    render_message_card(msg, user_id=user_info["username"], user_role="student", enable_comments=True, user_info=user_info)
                     
                     # Add spacing between messages
                     if idx < len(messages) - 1:
@@ -633,7 +838,7 @@ def teacher_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher")
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info)
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -731,7 +936,7 @@ def senator_interface(user_info):
         
         if messages:
             for msg in messages:
-                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator")
+                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info)
         else:
             st.info("No senate messages yet")
     
@@ -744,7 +949,7 @@ def senator_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator")
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info)
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -825,7 +1030,7 @@ def admin_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin")
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info)
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -917,12 +1122,12 @@ def super_admin_interface(user_info):
         if messages:
             for msg in messages:
                 with st.container():
-                    render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin")
+                    render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info)
                     
                     col1, col2 = st.columns([3, 1])
                     with col2:
                         if not msg.get("flagged", False):
-                            if st.button(f"🚩 Flag", key=f"flag_{msg['id']}"):
+                            if st.button(f"🚩 Flag", key=f"flag_msg_{msg['id']}"):
                                 reason = st.text_input(
                                     "Reason for flagging",
                                     key=f"reason_{msg['id']}"
@@ -940,7 +1145,7 @@ def super_admin_interface(user_info):
         if messages:
             st.warning(f" {len(messages)} flagged message(s) requiring attention")
             for msg in messages:
-                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin")
+                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info)
         else:
             st.success(" No flagged messages")
     
