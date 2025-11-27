@@ -571,6 +571,12 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
     
     timestamp = datetime.fromisoformat(message["timestamp"]).strftime("%B %d, %Y at %I:%M %p")
     
+    # Build flag warning HTML if flagged
+    flag_html = ""
+    if message.get("flagged"):
+        flag_reason = message.get("flag_reason", "Community guidelines violation")
+        flag_html = f'<div style="margin-top: 0.5rem; color: #f44336; font-weight: 600;">⚠️ Flagged: {flag_reason}</div>'
+    
     st.markdown(f"""
     <div class="message-card {flagged_class}">
         <div class="message-header">
@@ -586,7 +592,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         <div class="message-content">
             {message['content']}
         </div>
-        {f'<div style="margin-top: 0.5rem; color: #f44336; font-weight: 600;">⚠️ Flagged: {message["flag_reason"]}</div>' if message.get("flagged") else ''}
+        {flag_html}
     </div>
     """, unsafe_allow_html=True)
     
@@ -1296,14 +1302,19 @@ def super_admin_interface(user_info):
                     col1, col2 = st.columns([3, 1])
                     with col2:
                         if not msg.get("flagged", False):
-                            if st.button(f"🚩 Flag", key=f"flag_msg_{msg['id']}"):
+                            with st.expander(f"🚩 Flag Message"):
                                 reason = st.text_input(
                                     "Reason for flagging",
+                                    placeholder="e.g., Abusive language, Bullying, Hate speech",
                                     key=f"reason_{msg['id']}"
                                 )
-                                if reason:
-                                    flag_message(msg["id"], reason)
-                                    st.rerun()
+                                if st.button("Submit Flag", key=f"submit_flag_{msg['id']}", type="primary"):
+                                    if reason.strip():
+                                        flag_message(msg["id"], reason.strip())
+                                        st.success("✅ Message flagged successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Please provide a reason for flagging")
         else:
             st.info("No messages found")
     
