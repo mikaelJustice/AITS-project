@@ -1349,7 +1349,6 @@ def main():
             st.markdown(f"### Welcome, {user_info['name']}!")
             st.markdown(f"**Role:** {user_info['role'].replace('_', ' ').title()}")
             
-            if st.button(" Logout"):
             if st.button(" Logout", key=f"logout_btn_{user_info['username']}"):
                 st.session_state.authenticated = False
                 st.session_state.user_info = None
