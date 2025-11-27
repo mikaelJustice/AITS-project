@@ -823,11 +823,12 @@ def teacher_interface(user_info):
         
         recipient = st.selectbox(
             "Send To",
-            ["all_school", "senate", "super_admin"],
+            ["all_school", "senate", "super_admin", "teachers"],
             format_func=lambda x: {
                 "all_school": "Whole School",
                 "senate": "Senate",
-                "super_admin": "Super Admin"
+                "super_admin": "Super Admin",
+                "teachers": "Teachers Only"
             }[x],
             key=f"recipient_teacher_{user_info['username']}"
         )
@@ -849,14 +850,24 @@ def teacher_interface(user_info):
     with tab2:
         st.markdown("###  School Feed")
         st.caption("Messages sorted by engagement - most popular and recent first")
-        
-        messages = get_messages(recipient="all_school")
-        
+
+        view_choice = st.selectbox(
+            "View",
+            ["all_school", "teachers"],
+            format_func=lambda x: {
+                "all_school": "Whole School",
+                "teachers": "Teachers Only"
+            }[x],
+            key=f"view_teacher_feed_{user_info['username']}"
+        )
+
+        messages = get_messages(recipient=view_choice)
+
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
                     render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info, context=f"teacher_{user_info['username']}_{idx}")
-                    
+
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
         else:
@@ -909,11 +920,13 @@ def senator_interface(user_info):
         with col2:
             recipient = st.selectbox(
                 "Send To",
-                ["all_school", "senate", "super_admin"],
+                ["all_school", "senate", "super_admin", "teachers", "admins"],
                 format_func=lambda x: {
                     "all_school": "Whole School",
                     "senate": "Senate Only",
-                    "super_admin": "Super Admin"
+                    "super_admin": "Super Admin",
+                    "teachers": "Teachers",
+                    "admins": "Administrators"
                 }[x],
                 key=f"recipient_senator_{user_info['username']}"
             )
@@ -1020,11 +1033,12 @@ def admin_interface(user_info):
         
         recipient = st.selectbox(
             "Send To",
-            ["all_school", "senate", "super_admin"],
+            ["all_school", "senate", "super_admin", "admins"],
             format_func=lambda x: {
                 "all_school": "Whole School",
                 "senate": "Senate",
-                "super_admin": "Super Admin"
+                "super_admin": "Super Admin",
+                "admins": "Admins Only"
             }[x],
             key=f"recipient_admin_{user_info['username']}"
         )
@@ -1046,14 +1060,24 @@ def admin_interface(user_info):
     with tab2:
         st.markdown("###  School Feed")
         st.caption("Messages sorted by engagement - most popular and recent first")
-        
-        messages = get_messages(recipient="all_school")
-        
+
+        view_choice = st.selectbox(
+            "View",
+            ["all_school", "admins"],
+            format_func=lambda x: {
+                "all_school": "Whole School",
+                "admins": "Admins Only"
+            }[x],
+            key=f"view_admin_feed_{user_info['username']}"
+        )
+
+        messages = get_messages(recipient=view_choice)
+
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
                     render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info, context=f"admin_feed_{user_info['username']}_{idx}")
-                    
+
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
         else:
