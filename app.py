@@ -77,6 +77,11 @@ st.markdown("""
         color: #7b1fa2;
     }
     
+    .badge-school-admin {
+        background: #ffe0b2;
+        color: #e65100;
+    }
+    
     .badge-senator {
         background: #e8f5e9;
         color: #388e3c;
@@ -490,6 +495,7 @@ def render_comments(message, user_id, user_name, user_role):
                     role_badges = {
                         "student": "🎓",
                         "teacher": "👨‍🏫",
+                        "school_admin": "🏛️",
                         "senator": "🏛️",
                         "admin": "🏢",
                         "super_admin": "👑"
@@ -552,6 +558,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
     role_badges = {
         "student": "badge-student",
         "teacher": "badge-teacher",
+        "school_admin": "badge-school-admin",
         "senator": "badge-senator",
         "admin": "badge-admin",
         "super_admin": "badge-super-admin"
@@ -815,6 +822,15 @@ def teacher_interface(user_info):
     """Teacher interface"""
     st.subheader(" Teacher Platform")
     
+    # Check for new messages notification
+    messages_data = load_json(MESSAGES_FILE)
+    new_messages = [m for m in messages_data.get("messages", []) 
+                    if m.get("timestamp")]
+    
+    if new_messages:
+        with st.container():
+            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
+    
     tab1, tab2, tab3 = st.tabs(["Send Message", "View Messages", "Account Settings"])
     
     with tab1:
@@ -895,6 +911,15 @@ def teacher_interface(user_info):
 def senator_interface(user_info):
     """Senator interface"""
     st.subheader(" Senate Platform")
+    
+    # Check for new messages notification
+    messages_data = load_json(MESSAGES_FILE)
+    new_messages = [m for m in messages_data.get("messages", []) 
+                    if m.get("timestamp")]
+    
+    if new_messages:
+        with st.container():
+            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
     
     tab1, tab2, tab3, tab4 = st.tabs(["Send Message", "Senate Discussion", "School Messages", "Account Settings"])
     
@@ -1007,6 +1032,15 @@ def admin_interface(user_info):
     """Admin interface - similar to teacher with additional viewing capabilities"""
     st.subheader(" Administration Panel")
     
+    # Check for new messages notification
+    messages_data = load_json(MESSAGES_FILE)
+    new_messages = [m for m in messages_data.get("messages", []) 
+                    if m.get("timestamp")]
+    
+    if new_messages:
+        with st.container():
+            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
+    
     tab1, tab2, tab3 = st.tabs(["Send Message", "View Messages", "Account Settings"])
     
     with tab1:
@@ -1060,6 +1094,117 @@ def admin_interface(user_info):
             st.info(" No messages available")
     
     with tab3:
+        st.markdown("### Account Settings")
+        
+        st.markdown("#### Change Password")
+        st.info("Keep your password secure and change it regularly")
+        
+        current_password = st.text_input("Current Password", type="password")
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm New Password", type="password")
+        
+        if st.button("Change Password"):
+            # Verify current password
+            user = authenticate(user_info["username"], current_password)
+            if not user:
+                st.error(" Current password is incorrect")
+            elif new_password != confirm_password:
+                st.error(" New passwords do not match")
+            elif len(new_password) < 6:
+                st.error(" New password must be at least 6 characters")
+            else:
+                if reset_user_password(user_info["username"], new_password):
+                    st.success(" Password changed successfully!")
+                else:
+                    st.error(" Failed to change password")
+
+def school_admin_interface(user_info):
+    """School administration interface - similar to teachers with admin capabilities"""
+    st.subheader(" School Administration Panel")
+    
+    # Check for new messages notification
+    messages_data = load_json(MESSAGES_FILE)
+    new_messages = [m for m in messages_data.get("messages", []) 
+                    if m.get("timestamp")]
+    
+    if new_messages:
+        with st.container():
+            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["Send Message", "View Messages", "School Feed", "Account Settings"])
+    
+    with tab1:
+        st.markdown("### Send a Message")
+        st.info(" School Administrators must identify themselves - all messages are sent with your name")
+        
+        message_content = st.text_area(
+            "Your Message",
+            placeholder="Share announcements, feedback, or administrative information...",
+            height=150
+        )
+        
+        recipient = st.selectbox(
+            "Send To",
+            ["all_school", "senate", "super_admin"],
+            format_func=lambda x: {
+                "all_school": "Whole School",
+                "senate": "Senate",
+                "super_admin": "Super Admin"
+            }[x]
+        )
+        
+        if st.button(" Send Message", type="primary"):
+            if message_content.strip():
+                create_message(
+                    sender_id=user_info.get("name", user_info["username"]),
+                    sender_role="school_admin",
+                    content=message_content,
+                    recipient=recipient,
+                    is_anonymous=False
+                )
+                st.success(" Message sent successfully!")
+                st.rerun()
+            else:
+                st.error(" Please enter a message")
+    
+    with tab2:
+        st.markdown("### All School Messages")
+        st.caption("Messages from all users in the school community")
+        
+        # Show notification badge with message count
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            st.markdown(f"<span style='background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.9rem; display: inline-block;'>📨 {len(new_messages)} New</span>", unsafe_allow_html=True)
+        
+        messages = get_messages(recipient="all_school")
+        
+        if messages:
+            for idx, msg in enumerate(messages):
+                with st.container():
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="school_admin", enable_comments=True, user_info=user_info)
+                    
+                    if idx < len(messages) - 1:
+                        st.markdown("<br>", unsafe_allow_html=True)
+        else:
+            st.info(" No messages available")
+    
+    with tab3:
+        st.markdown("### School Feed")
+        st.caption("Messages sorted by engagement - most popular and recent first")
+        
+        messages = get_messages(recipient="all_school")
+        
+        if messages:
+            for idx, msg in enumerate(messages):
+                with st.container():
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="school_admin", enable_comments=True, user_info=user_info)
+                    
+                    if idx < len(messages) - 1:
+                        st.markdown("<br>", unsafe_allow_html=True)
+        else:
+            st.info(" No messages yet")
+    
+    with tab4:
         st.markdown("### Account Settings")
         
         st.markdown("#### Change Password")
@@ -1178,7 +1323,7 @@ def super_admin_interface(user_info):
             new_username = st.text_input("Username")
             new_password = st.text_input("Password", type="password")
             new_name = st.text_input("Full Name")
-            new_role = st.selectbox("Role", ["student", "teacher", "senator", "admin"])
+            new_role = st.selectbox("Role", ["student", "teacher", "school_admin", "senator", "admin"])
             
             if st.button("Create User"):
                 if new_username and new_password:
@@ -1225,8 +1370,8 @@ def super_admin_interface(user_info):
                         )
                         edit_role = st.selectbox(
                             "Role",
-                            ["student", "teacher", "senator", "admin"],
-                            index=["student", "teacher", "senator", "admin"].index(info['role']),
+                            ["student", "teacher", "school_admin", "senator", "admin"],
+                            index=["student", "teacher", "school_admin", "senator", "admin"].index(info['role']),
                             key=f"edit_role_{username}"
                         )
                         
@@ -1399,6 +1544,8 @@ def main():
             student_interface(user_info)
         elif role == "teacher":
             teacher_interface(user_info)
+        elif role == "school_admin":
+            school_admin_interface(user_info)
         elif role == "senator":
             senator_interface(user_info)
         elif role == "admin":
