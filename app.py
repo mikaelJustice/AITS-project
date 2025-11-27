@@ -584,6 +584,12 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
     
     # Add action buttons (delete for owner/super admin, flag for super admin)
     if user_id:
+        # Ensure a unique suffix per render call to avoid duplicate Streamlit keys
+        if "_render_counter" not in st.session_state:
+            st.session_state["_render_counter"] = 0
+        st.session_state["_render_counter"] += 1
+        _render_instance = st.session_state["_render_counter"]
+
         is_owner = message["sender_id"] == user_id
         is_super_admin = user_role == "super_admin"
         
@@ -592,7 +598,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         # Delete button for owner or super admin
         if is_owner or is_super_admin:
             with col2:
-                delete_key = f"delete_msg_{message['id']}_{context}" if context else f"delete_msg_{message['id']}"
+                delete_key = f"delete_msg_{message['id']}_{context}_{_render_instance}"
                 if st.button(
                     "🗑️ Delete",
                     key=delete_key,
@@ -624,7 +630,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
                 has_reacted = user_id in users
                 button_type = "primary" if has_reacted else "secondary"
                 
-                react_key = f"react_msg_{message['id']}_{emoji}_{context}" if context else f"react_msg_{message['id']}_{emoji}"
+                react_key = f"react_msg_{message['id']}_{emoji}_{context}_{_render_instance}"
                 if st.button(
                     f"{emoji} {count}",
                     key=react_key,
