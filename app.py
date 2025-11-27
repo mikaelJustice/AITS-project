@@ -106,7 +106,7 @@ st.markdown("""
 # ============================================================================
 
 DATA_DIR = Path("data")
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 USERS_FILE = DATA_DIR / "users.json"
 MESSAGES_FILE = DATA_DIR / "messages.json"
@@ -114,13 +114,34 @@ ANONYMOUS_NAMES_FILE = DATA_DIR / "anonymous_names.json"
 
 def load_json(filepath):
     """Load JSON data from file"""
+    # Return sensible defaults and handle corrupt/empty files gracefully
     if filepath.exists():
-        with open(filepath, 'r') as f:
-            return json.load(f)
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+                # Ensure messages file always returns a dict with 'messages'
+                if filepath == MESSAGES_FILE:
+                    if not isinstance(data, dict):
+                        return {"messages": []}
+                    return data
+                return data
+        except (json.JSONDecodeError, ValueError):
+            # Corrupt or empty file — return defaults depending on file
+            if filepath == MESSAGES_FILE:
+                return {"messages": []}
+            return {}
+    # File doesn't exist yet — provide sensible default for messages file
+    if filepath == MESSAGES_FILE:
+        return {"messages": []}
     return {}
 
 def save_json(filepath, data):
     """Save JSON data to file"""
+    # Ensure parent dir exists (in case caller uses subfolders)
+    try:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=2)
 
