@@ -214,6 +214,103 @@ def create_message(sender_id, sender_role, content, recipient, is_anonymous=Fals
     save_json(MESSAGES_FILE, messages_data)
     return True
 
+# -----------------
+# Enter-to-send helpers
+# -----------------
+def _student_send_on_enter(username):
+    key_input = f"msg_input_student_{username}"
+    key_recipient = f"recipient_student_{username}"
+    key_is_anon = f"is_anon_student_{username}"
+    msg = st.session_state.get(key_input, "").strip()
+    if not msg:
+        return
+    users = load_json(USERS_FILE)
+    display_name = users.get(username, {}).get('name', username)
+    recipient = st.session_state.get(key_recipient, "all_school")
+    if recipient == "senate":
+        effective_anonymous = False
+        sender_id = display_name
+    else:
+        effective_anonymous = st.session_state.get(key_is_anon, False)
+        sender_id = username
+    anon_name = get_or_create_anonymous_name(username) if effective_anonymous else None
+    create_message(
+        sender_id=sender_id,
+        sender_role="student",
+        content=msg,
+        recipient=recipient,
+        is_anonymous=effective_anonymous,
+        anonymous_name=anon_name
+    )
+    # clear the input
+    st.session_state[key_input] = ""
+    st.success("Message sent successfully!")
+    st.rerun()
+
+def _teacher_send_on_enter(username):
+    key_input = f"msg_input_teacher_{username}"
+    key_recipient = f"recipient_teacher_{username}"
+    msg = st.session_state.get(key_input, "").strip()
+    if not msg:
+        return
+    users = load_json(USERS_FILE)
+    display_name = users.get(username, {}).get('name', username)
+    recipient = st.session_state.get(key_recipient, "all_school")
+    create_message(
+        sender_id=display_name,
+        sender_role="teacher",
+        content=msg,
+        recipient=recipient,
+        is_anonymous=False
+    )
+    st.session_state[key_input] = ""
+    st.success("Message sent successfully!")
+    st.rerun()
+
+def _senator_send_on_enter(username):
+    key_input = f"msg_input_senator_{username}"
+    key_recipient = f"recipient_senator_{username}"
+    key_is_anon = f"is_anon_senator_{username}"
+    msg = st.session_state.get(key_input, "").strip()
+    if not msg:
+        return
+    users = load_json(USERS_FILE)
+    display_name = users.get(username, {}).get('name', username)
+    recipient = st.session_state.get(key_recipient, "all_school")
+    use_anon = st.session_state.get(key_is_anon, False) and recipient == "all_school"
+    anon_name = get_or_create_anonymous_name(username) if use_anon else None
+    create_message(
+        sender_id=display_name,
+        sender_role="senator",
+        content=msg,
+        recipient=recipient,
+        is_anonymous=use_anon,
+        anonymous_name=anon_name
+    )
+    st.session_state[key_input] = ""
+    st.success("Message sent successfully!")
+    st.rerun()
+
+def _admin_send_on_enter(username):
+    key_input = f"msg_input_admin_{username}"
+    key_recipient = f"recipient_admin_{username}"
+    msg = st.session_state.get(key_input, "").strip()
+    if not msg:
+        return
+    users = load_json(USERS_FILE)
+    display_name = users.get(username, {}).get('name', username)
+    recipient = st.session_state.get(key_recipient, "all_school")
+    create_message(
+        sender_id=display_name,
+        sender_role="admin",
+        content=msg,
+        recipient=recipient,
+        is_anonymous=False
+    )
+    st.session_state[key_input] = ""
+    st.success("Message sent successfully!")
+    st.rerun()
+
 def get_messages(recipient=None, role=None):
     """Get messages filtered by recipient and/or role"""
     messages_data = load_json(MESSAGES_FILE)
@@ -659,13 +756,13 @@ def student_interface(user_info):
         col1, col2 = st.columns([2, 1])
         
         with col1:
-                # Message content
-                message_content = st.text_area(
-                    "Your Message",
+                # Message input (press Enter to send)
+                message_content = st.text_input(
+                    "Your Message (press Enter to send)",
                     placeholder="Share your thoughts, ideas, or concerns...",
-                    height=150,
-                    help="Be respectful and constructive in your communication",
-                    key=f"msg_content_student_{user_info['username']}"
+                    key=f"msg_input_student_{user_info['username']}",
+                    on_change=_student_send_on_enter,
+                    args=(user_info['username'],)
                 )
         
         with col2:
@@ -698,10 +795,10 @@ def student_interface(user_info):
             st.info(" Note: Anonymous messages can be traced by administration if they violate community guidelines.")
         
         if st.button(" Send Message", type="primary", key=f"send_msg_student_{user_info['username']}"):
-            if message_content.strip():
+            msg = st.session_state.get(f"msg_input_student_{user_info['username']}", "").strip()
+            if msg:
                 # Determine effective anonymity and sender id
                 if recipient == "senate":
-                    # Senate messages must be identified
                     effective_anonymous = False
                     sender_id = user_info.get("name", user_info["username"])
                 else:
@@ -715,11 +812,12 @@ def student_interface(user_info):
                 create_message(
                     sender_id=sender_id,
                     sender_role="student",
-                    content=message_content,
+                    content=msg,
                     recipient=recipient,
                     is_anonymous=effective_anonymous,
                     anonymous_name=anon_name
                 )
+                st.session_state[f"msg_input_student_{user_info['username']}"] = ""
                 st.success(" Message sent successfully!")
                 st.rerun()
             else:
@@ -814,11 +912,12 @@ def teacher_interface(user_info):
         st.markdown("### Send a Message")
         st.info(" Teachers must identify themselves - all messages are sent with your name")
         
-        message_content = st.text_area(
-            "Your Message",
+        message_content = st.text_input(
+            "Your Message (press Enter to send)",
             placeholder="Share announcements, feedback, or information...",
-            height=150,
-            key=f"msg_content_teacher_{user_info['username']}"
+            key=f"msg_input_teacher_{user_info['username']}",
+            on_change=_teacher_send_on_enter,
+            args=(user_info['username'],)
         )
         
         recipient = st.selectbox(
@@ -834,14 +933,16 @@ def teacher_interface(user_info):
         )
         
         if st.button(" Send Message", type="primary", key=f"send_msg_teacher_{user_info['username']}"):
-            if message_content.strip():
+            msg = st.session_state.get(f"msg_input_teacher_{user_info['username']}", "").strip()
+            if msg:
                 create_message(
                     sender_id=user_info.get("name", user_info["username"]),
                     sender_role="teacher",
-                    content=message_content,
+                    content=msg,
                     recipient=recipient,
                     is_anonymous=False
                 )
+                st.session_state[f"msg_input_teacher_{user_info['username']}"] = ""
                 st.success(" Message sent successfully!")
                 st.rerun()
             else:
@@ -910,11 +1011,12 @@ def senator_interface(user_info):
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            message_content = st.text_area(
-                "Your Message",
+            message_content = st.text_input(
+                "Your Message (press Enter to send)",
                 placeholder="Share your message...",
-                height=150,
-                key=f"msg_content_senator_{user_info['username']}"
+                key=f"msg_input_senator_{user_info['username']}",
+                on_change=_senator_send_on_enter,
+                args=(user_info['username'],)
             )
         
         with col2:
@@ -943,21 +1045,23 @@ def senator_interface(user_info):
                 st.info("ℹ Messages to Senate and Super Admin are not anonymous")
         
         if st.button(" Send Message", type="primary", key=f"send_msg_senator_{user_info['username']}"):
-            if message_content.strip():
+            msg = st.session_state.get(f"msg_input_senator_{user_info['username']}", "").strip()
+            if msg:
                 anon_name = None
                 use_anon = is_anonymous and recipient == "all_school"
-                
+
                 if use_anon:
                     anon_name = get_or_create_anonymous_name(user_info["username"])
-                
+
                 create_message(
                     sender_id=user_info.get("name", user_info["username"]),
                     sender_role="senator",
-                    content=message_content,
+                    content=msg,
                     recipient=recipient,
                     is_anonymous=use_anon,
                     anonymous_name=anon_name
                 )
+                st.session_state[f"msg_input_senator_{user_info['username']}"] = ""
                 st.success(" Message sent successfully!")
                 st.rerun()
             else:
@@ -1024,11 +1128,12 @@ def admin_interface(user_info):
         st.markdown("### Send a Message")
         st.info(" Administrators must identify themselves - all messages are sent with your name")
         
-        message_content = st.text_area(
-            "Your Message",
+        message_content = st.text_input(
+            "Your Message (press Enter to send)",
             placeholder="Share announcements, feedback, or information...",
-            height=150,
-            key=f"msg_content_admin_{user_info['username']}"
+            key=f"msg_input_admin_{user_info['username']}",
+            on_change=_admin_send_on_enter,
+            args=(user_info['username'],)
         )
         
         recipient = st.selectbox(
@@ -1044,14 +1149,16 @@ def admin_interface(user_info):
         )
         
         if st.button(" Send Message", type="primary", key=f"send_msg_admin_{user_info['username']}"):
-            if message_content.strip():
+            msg = st.session_state.get(f"msg_input_admin_{user_info['username']}", "").strip()
+            if msg:
                 create_message(
                     sender_id=user_info.get("name", user_info["username"]),
                     sender_role="admin",
-                    content=message_content,
+                    content=msg,
                     recipient=recipient,
                     is_anonymous=False
                 )
+                st.session_state[f"msg_input_admin_{user_info['username']}"] = ""
                 st.success(" Message sent successfully!")
                 st.rerun()
             else:
