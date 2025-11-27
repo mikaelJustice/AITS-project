@@ -322,21 +322,12 @@ def get_messages(recipient=None, role=None):
     if role:
         messages = [m for m in messages if m["sender_role"] == role or m["recipient"] == "all_school"]
     
-    # Sort by engagement score (reactions + recency)
-    def calculate_engagement_score(msg):
-        # Get total reactions
-        reactions = msg.get("reactions", {})
-        total_reactions = sum(len(users) for users in reactions.values())
-        
-        # Calculate time decay (newer = higher score)
-        msg_time = datetime.fromisoformat(msg["timestamp"])
-        hours_old = (datetime.now() - msg_time).total_seconds() / 3600
-        time_score = max(0, 100 - (hours_old * 2))  # Decays over time
-        
-        # Combined score: reactions * 10 + time_score
-        return (total_reactions * 10) + time_score
-    
-    messages.sort(key=calculate_engagement_score, reverse=True)
+    # Sort by latest timestamp by default (newest first)
+    try:
+        messages.sort(key=lambda m: datetime.fromisoformat(m.get('timestamp', '1970-01-01T00:00:00')), reverse=True)
+    except Exception:
+        # Fallback: keep existing order if parse fails
+        pass
     return messages
 
 def flag_message(message_id, reason):
