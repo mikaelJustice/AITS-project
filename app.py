@@ -5,6 +5,7 @@ import secrets
 from datetime import datetime
 import os
 from pathlib import Path
+from html import escape
 
 # ============================================================================
 # CONFIGURATION & SETUP
@@ -517,7 +518,8 @@ def render_comments(message, user_id, user_name, user_role):
                 
                 # Comment content and time
                 comment_time = datetime.fromisoformat(comment["timestamp"]).strftime("%b %d, %I:%M %p")
-                st.markdown(f"{comment['content']}")
+                safe_comment = escape(comment.get('content', '')).replace('\n', '<br>')
+                st.markdown(safe_comment, unsafe_allow_html=True)
                 st.caption(comment_time)
                 
                 # Comment reactions
@@ -563,6 +565,9 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
     
     timestamp = datetime.fromisoformat(message["timestamp"]).strftime("%B %d, %Y at %I:%M %p")
     
+    # Escape message content to prevent raw HTML from breaking layout
+    safe_content = escape(message.get('content', '')).replace('\n', '<br>')
+
     st.markdown(f"""
     <div class="message-card {flagged_class}">
         <div class="message-header">
@@ -576,7 +581,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
             </div>
         </div>
         <div class="message-content">
-            {message['content']}
+            {safe_content}
         </div>
         {f'<div style="margin-top: 0.5rem; color: #f44336; font-weight: 600;">⚠️ Flagged: {message["flag_reason"]}</div>' if message.get("flagged") else ''}
     </div>
