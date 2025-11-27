@@ -669,40 +669,55 @@ def student_interface(user_info):
                 )
         
         with col2:
-            # Anonymous option
-            is_anonymous = st.checkbox(
-                "Send Anonymously",
-                value=True,
-                help="Your identity will be hidden from recipients (but traceable by super admin if needed)",
-                key=f"is_anon_student_{user_info['username']}"
-            )
-            
-            # Recipient selection
+            # Recipient selection (track with a key so we can reactively enable/disable anonymity)
             recipient = st.selectbox(
                 "Send To",
                 ["all_school", "senate"],
                 format_func=lambda x: {
                     "all_school": "Whole School",
                     "senate": "Senate"
-                }[x]
+                }[x],
+                key=f"recipient_student_{user_info['username']}"
             )
-            
-            st.info(" **Tip:** To reach teachers or administration, send to 'Whole School' or contact the Senate who can forward your message.")
-            
+
+            # Anonymous option: only available when sending to whole school
+            anon_disabled = (recipient != "all_school")
+            is_anonymous = st.checkbox(
+                "Send Anonymously",
+                value=(not anon_disabled),
+                help="Your identity will be hidden from recipients (but traceable by super admin if needed)",
+                key=f"is_anon_student_{user_info['username']}",
+                disabled=anon_disabled
+            )
+
+            if recipient != "all_school":
+                st.info("Messages sent to the Senate are NOT anonymous and will include your name.")
+            else:
+                st.info(" **Tip:** To reach teachers or administration, send to 'Whole School' or contact the Senate who can forward your message.")
+
             st.info(" Note: Anonymous messages can be traced by administration if they violate community guidelines.")
         
         if st.button(" Send Message", type="primary", key=f"send_msg_student_{user_info['username']}"):
             if message_content.strip():
+                # Determine effective anonymity and sender id
+                if recipient == "senate":
+                    # Senate messages must be identified
+                    effective_anonymous = False
+                    sender_id = user_info.get("name", user_info["username"])
+                else:
+                    effective_anonymous = is_anonymous
+                    sender_id = user_info["username"]
+
                 anon_name = None
-                if is_anonymous:
+                if effective_anonymous:
                     anon_name = get_or_create_anonymous_name(user_info["username"])
-                
+
                 create_message(
-                    sender_id=user_info["username"],
+                    sender_id=sender_id,
                     sender_role="student",
                     content=message_content,
                     recipient=recipient,
-                    is_anonymous=is_anonymous,
+                    is_anonymous=effective_anonymous,
                     anonymous_name=anon_name
                 )
                 st.success(" Message sent successfully!")
