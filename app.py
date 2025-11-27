@@ -3,6 +3,7 @@ import json
 import hashlib
 import secrets
 from datetime import datetime
+import time
 import os
 from pathlib import Path
 
@@ -654,45 +655,46 @@ def student_interface(user_info):
     """Student interface"""
     st.subheader(" Student Voice Platform")
     
+    # Check for new messages notification
+    messages_data = load_json(MESSAGES_FILE)
+    new_messages = [m for m in messages_data.get("messages", []) 
+                    if m.get("timestamp") and 
+                    (m["recipient"] == "all_school" or m["recipient"] == user_info.get("role", "student"))]
+    
+    if new_messages:
+        with st.container():
+            st.info(f"📨 You have {len(new_messages)} message(s) in the school feed")
+    
     tab1, tab2, tab3, tab4 = st.tabs(["Send Message", "My Anonymous Profile", "View Messages", "Account Settings"])
     
     with tab1:
         st.markdown("### Send a Message")
         
-        col1, col2 = st.columns([2, 1])
+        st.info(" **Tip:** Messages are sent anonymously by default and visible to the whole school.")
+        st.caption("Anonymous messages can be traced by administration if they violate community guidelines.")
+        
+        # Message content only
+        message_content = st.text_area(
+            "Your Message",
+            placeholder="Share your thoughts, ideas, or concerns...",
+            height=150,
+            help="Be respectful and constructive in your communication"
+        )
+        
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Message content
-            message_content = st.text_area(
-                "Your Message",
-                placeholder="Share your thoughts, ideas, or concerns...",
-                height=150,
-                help="Be respectful and constructive in your communication"
-            )
+            is_anonymous = st.checkbox("Send Anonymously", value=True)
         
         with col2:
-            # Anonymous option
-            is_anonymous = st.checkbox(
-                "Send Anonymously",
-                value=True,
-                help="Your identity will be hidden from recipients (but traceable by super admin if needed)"
-            )
-            
-            # Recipient selection
-            recipient = st.selectbox(
-                "Send To",
-                ["all_school", "senate"],
-                format_func=lambda x: {
-                    "all_school": "Whole School",
-                    "senate": "Senate"
-                }[x]
-            )
-            
-            st.info(" **Tip:** To reach teachers or administration, send to 'Whole School' or contact the Senate who can forward your message.")
-            
-            st.info(" Note: Anonymous messages can be traced by administration if they violate community guidelines.")
+            st.write("")
+            st.write("")
         
-        if st.button(" Send Message", type="primary"):
+        with col3:
+            st.write("")
+            st.write("")
+        
+        if st.button(" Send Message", type="primary", use_container_width=True):
             if message_content.strip():
                 anon_name = None
                 if is_anonymous:
@@ -702,11 +704,26 @@ def student_interface(user_info):
                     sender_id=user_info["username"],
                     sender_role="student",
                     content=message_content,
-                    recipient=recipient,
+                    recipient="all_school",
                     is_anonymous=is_anonymous,
                     anonymous_name=anon_name
                 )
+                
+                # Show message preview after sending
                 st.success(" Message sent successfully!")
+                st.markdown("---")
+                st.markdown("### Your Message:")
+                
+                # Display the sent message
+                sender_display = anon_name if is_anonymous else user_info.get("username", "You")
+                st.markdown(f"""
+                <div style="background: #f0f2f6; padding: 1rem; border-radius: 8px; border-left: 4px solid #667eea;">
+                    <strong>{sender_display}</strong> • Just now<br><br>
+                    {message_content}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                time.sleep(2)
                 st.rerun()
             else:
                 st.error(" Please enter a message")
@@ -746,6 +763,11 @@ def student_interface(user_info):
     with tab3:
         st.markdown("###  School Feed")
         st.caption("Messages sorted by engagement - most popular and recent first")
+        
+        # Show notification badge with message count
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            st.markdown(f"<span style='background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.9rem; display: inline-block;'>📨 {len(new_messages)} New</span>", unsafe_allow_html=True)
         
         messages = get_messages(recipient="all_school")
         
