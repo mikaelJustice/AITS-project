@@ -425,7 +425,7 @@ def render_header():
         <p>Share your ideas, concerns, and feedback safely and responsibly</p>
     </div>
     """, unsafe_allow_html=True)
-
+ 
 def render_comments(message, user_id, user_name, user_role):
     """Render comments section like Facebook/Instagram"""
     comments = message.get("comments", [])
@@ -643,17 +643,6 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
     # Add comments section
     if enable_comments and user_id and user_info:
         render_comments(message, user_id, user_info.get("name", user_info["username"]), user_role)
-
-def render_header():
-    """Render the main header"""
-    st.markdown("""
-    <div class="main-header">
-        <h1>🎓 Empower International Academy</h1>
-        <h2>Voice Platform - Empowering Student Expression</h2>
-        <p>Share your ideas, concerns, and feedback safely and responsibly</p>
-    </div>
-    """, unsafe_allow_html=True)
-
 # ============================================================================
 # ROLE-SPECIFIC INTERFACES
 # ============================================================================
