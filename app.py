@@ -3,7 +3,6 @@ import json
 import hashlib
 import secrets
 from datetime import datetime
-import time
 import os
 from pathlib import Path
 
@@ -75,11 +74,6 @@ st.markdown("""
     .badge-teacher {
         background: #f3e5f5;
         color: #7b1fa2;
-    }
-    
-    .badge-school-admin {
-        background: #ffe0b2;
-        color: #e65100;
     }
     
     .badge-senator {
@@ -495,7 +489,6 @@ def render_comments(message, user_id, user_name, user_role):
                     role_badges = {
                         "student": "🎓",
                         "teacher": "👨‍🏫",
-                        "school_admin": "🏛️",
                         "senator": "🏛️",
                         "admin": "🏢",
                         "super_admin": "👑"
@@ -550,7 +543,7 @@ def render_comments(message, user_id, user_name, user_role):
     else:
         st.info("No comments yet. Be the first to comment!")
 
-def render_message_card(message, show_sender_id=False, user_id=None, show_reactions=True, user_role=None, enable_comments=True, user_info=None, context=""):
+def render_message_card(message, show_sender_id=False, user_id=None, show_reactions=True, user_role=None, enable_comments=True, user_info=None):
     """Render a message card"""
     flagged_class = "flagged" if message.get("flagged", False) else ""
     
@@ -558,7 +551,6 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
     role_badges = {
         "student": "badge-student",
         "teacher": "badge-teacher",
-        "school_admin": "badge-school-admin",
         "senator": "badge-senator",
         "admin": "badge-admin",
         "super_admin": "badge-super-admin"
@@ -570,12 +562,6 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         sender_display += f" (Real ID: {message['sender_id']})"
     
     timestamp = datetime.fromisoformat(message["timestamp"]).strftime("%B %d, %Y at %I:%M %p")
-    
-    # Build flag warning HTML if flagged
-    flag_html = ""
-    if message.get("flagged"):
-        flag_reason = message.get("flag_reason", "Community guidelines violation")
-        flag_html = f'<div style="margin-top: 0.5rem; color: #f44336; font-weight: 600;">⚠️ Flagged: {flag_reason}</div>'
     
     st.markdown(f"""
     <div class="message-card {flagged_class}">
@@ -592,7 +578,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         <div class="message-content">
             {message['content']}
         </div>
-        {flag_html}
+        {f'<div style="margin-top: 0.5rem; color: #f44336; font-weight: 600;">⚠️ Flagged: {message["flag_reason"]}</div>' if message.get("flagged") else ''}
     </div>
     """, unsafe_allow_html=True)
     
@@ -606,10 +592,9 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         # Delete button for owner or super admin
         if is_owner or is_super_admin:
             with col2:
-                context_prefix = f"{context}_" if context else ""
                 if st.button(
                     "🗑️ Delete",
-                    key=f"delete_msg_{context_prefix}{message['id']}",
+                    key=f"delete_msg_{message['id']}",
                     type="secondary",
                     use_container_width=True
                 ):
@@ -632,7 +617,6 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         st.markdown("#### React to this message:")
         cols = st.columns(5)
         
-        context_prefix = f"{context}_" if context else ""
         for idx, (emoji, users) in enumerate(reactions.items()):
             with cols[idx]:
                 count = len(users)
@@ -641,7 +625,7 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
                 
                 if st.button(
                     f"{emoji} {count}",
-                    key=f"react_msg_{context_prefix}{message['id']}_{emoji}",
+                    key=f"react_msg_{message['id']}_{emoji}",
                     type=button_type,
                     use_container_width=True
                 ):
@@ -670,46 +654,47 @@ def student_interface(user_info):
     """Student interface"""
     st.subheader(" Student Voice Platform")
     
-    # Check for new messages notification
-    messages_data = load_json(MESSAGES_FILE)
-    new_messages = [m for m in messages_data.get("messages", []) 
-                    if m.get("timestamp") and 
-                    (m["recipient"] == "all_school" or m["recipient"] == user_info.get("role", "student"))]
-    
-    if new_messages:
-        with st.container():
-            st.info(f"📨 You have {len(new_messages)} message(s) in the school feed")
-    
     tab1, tab2, tab3, tab4 = st.tabs(["Send Message", "My Anonymous Profile", "View Messages", "Account Settings"])
     
     with tab1:
         st.markdown("### Send a Message")
         
-        st.info(" **Tip:** Messages are sent anonymously by default and visible to the whole school.")
-        st.caption("Anonymous messages can be traced by administration if they violate community guidelines.")
-        
-        # Message content only
-        message_content = st.text_area(
-            "Your Message",
-            placeholder="Share your thoughts, ideas, or concerns...",
-            height=150,
-            help="Be respectful and constructive in your communication"
-        )
-        
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns([2, 1])
         
         with col1:
-            is_anonymous = st.checkbox("Send Anonymously", value=True)
+                # Message content
+                message_content = st.text_area(
+                    "Your Message",
+                    placeholder="Share your thoughts, ideas, or concerns...",
+                    height=150,
+                    help="Be respectful and constructive in your communication",
+                    key=f"msg_content_student_{user_info['username']}"
+                )
         
         with col2:
-            st.write("")
-            st.write("")
+            # Anonymous option
+            is_anonymous = st.checkbox(
+                "Send Anonymously",
+                value=True,
+                help="Your identity will be hidden from recipients (but traceable by super admin if needed)",
+                key=f"is_anon_student_{user_info['username']}"
+            )
+            
+            # Recipient selection
+            recipient = st.selectbox(
+                "Send To",
+                ["all_school", "senate"],
+                format_func=lambda x: {
+                    "all_school": "Whole School",
+                    "senate": "Senate"
+                }[x]
+            )
+            
+            st.info(" **Tip:** To reach teachers or administration, send to 'Whole School' or contact the Senate who can forward your message.")
+            
+            st.info(" Note: Anonymous messages can be traced by administration if they violate community guidelines.")
         
-        with col3:
-            st.write("")
-            st.write("")
-        
-        if st.button(" Send Message", type="primary", use_container_width=True):
+        if st.button(" Send Message", type="primary", key=f"send_msg_student_{user_info['username']}"):
             if message_content.strip():
                 anon_name = None
                 if is_anonymous:
@@ -719,26 +704,11 @@ def student_interface(user_info):
                     sender_id=user_info["username"],
                     sender_role="student",
                     content=message_content,
-                    recipient="all_school",
+                    recipient=recipient,
                     is_anonymous=is_anonymous,
                     anonymous_name=anon_name
                 )
-                
-                # Show message preview after sending
                 st.success(" Message sent successfully!")
-                st.markdown("---")
-                st.markdown("### Your Message:")
-                
-                # Display the sent message
-                sender_display = anon_name if is_anonymous else user_info.get("username", "You")
-                st.markdown(f"""
-                <div style="background: #f0f2f6; padding: 1rem; border-radius: 8px; border-left: 4px solid #667eea;">
-                    <strong>{sender_display}</strong> • Just now<br><br>
-                    {message_content}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                time.sleep(2)
                 st.rerun()
             else:
                 st.error(" Please enter a message")
@@ -757,10 +727,11 @@ def student_interface(user_info):
             new_name = st.text_input(
                 "Choose a New Anonymous Name (optional)",
                 placeholder="e.g., StudentVoice2024, ConcernedLearner",
-                max_chars=20
+                max_chars=20,
+                key=f"anon_new_{user_info['username']}"
             )
             
-            if st.button("Update Anonymous Name"):
+            if st.button("Update Anonymous Name", key=f"update_anon_{user_info['username']}"):
                 if new_name.strip():
                     anon_names = load_json(ANONYMOUS_NAMES_FILE)
                     anon_names[user_info["username"]] = new_name.strip()
@@ -770,7 +741,7 @@ def student_interface(user_info):
         
         with col2:
             st.write("Or:")
-            if st.button(" Reset to Auto-Generated Name"):
+            if st.button(" Reset to Auto-Generated Name", key=f"reset_anon_{user_info['username']}"):
                 new_anon_name = reset_anonymous_name(user_info["username"])
                 st.success(f" Anonymous name reset to: {new_anon_name}")
                 st.rerun()
@@ -779,18 +750,13 @@ def student_interface(user_info):
         st.markdown("###  School Feed")
         st.caption("Messages sorted by engagement - most popular and recent first")
         
-        # Show notification badge with message count
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            st.markdown(f"<span style='background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.9rem; display: inline-block;'>📨 {len(new_messages)} New</span>", unsafe_allow_html=True)
-        
         messages = get_messages(recipient="all_school")
         
         if messages:
             # Infinite scroll style - show messages in a continuous feed
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info["username"], user_role="student", enable_comments=True, user_info=user_info, context="student")
+                    render_message_card(msg, user_id=user_info["username"], user_role="student", enable_comments=True, user_info=user_info)
                     
                     # Add spacing between messages
                     if idx < len(messages) - 1:
@@ -807,11 +773,11 @@ def student_interface(user_info):
         col1, col2 = st.columns(2)
         
         with col1:
-            current_password = st.text_input("Current Password", type="password")
-            new_password = st.text_input("New Password", type="password")
-            confirm_password = st.text_input("Confirm New Password", type="password")
+            current_password = st.text_input("Current Password", type="password", key=f"current_pw_student_{user_info['username']}")
+            new_password = st.text_input("New Password", type="password", key=f"new_pw_student_{user_info['username']}")
+            confirm_password = st.text_input("Confirm New Password", type="password", key=f"confirm_pw_student_{user_info['username']}")
             
-            if st.button("Change Password"):
+            if st.button("Change Password", key=f"change_pw_student_{user_info['username']}"):
                 # Verify current password
                 user = authenticate(user_info["username"], current_password)
                 if not user:
@@ -830,15 +796,6 @@ def teacher_interface(user_info):
     """Teacher interface"""
     st.subheader(" Teacher Platform")
     
-    # Check for new messages notification
-    messages_data = load_json(MESSAGES_FILE)
-    new_messages = [m for m in messages_data.get("messages", []) 
-                    if m.get("timestamp")]
-    
-    if new_messages:
-        with st.container():
-            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
-    
     tab1, tab2, tab3 = st.tabs(["Send Message", "View Messages", "Account Settings"])
     
     with tab1:
@@ -848,7 +805,8 @@ def teacher_interface(user_info):
         message_content = st.text_area(
             "Your Message",
             placeholder="Share announcements, feedback, or information...",
-            height=150
+            height=150,
+            key=f"msg_content_teacher_{user_info['username']}"
         )
         
         recipient = st.selectbox(
@@ -858,10 +816,11 @@ def teacher_interface(user_info):
                 "all_school": "Whole School",
                 "senate": "Senate",
                 "super_admin": "Super Admin"
-            }[x]
+            }[x],
+            key=f"recipient_teacher_{user_info['username']}"
         )
         
-        if st.button(" Send Message", type="primary"):
+        if st.button(" Send Message", type="primary", key=f"send_msg_teacher_{user_info['username']}"):
             if message_content.strip():
                 create_message(
                     sender_id=user_info.get("name", user_info["username"]),
@@ -884,7 +843,7 @@ def teacher_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info, context="teacher")
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info)
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -897,11 +856,11 @@ def teacher_interface(user_info):
         st.markdown("#### Change Password")
         st.info("Keep your password secure and change it regularly")
         
-        current_password = st.text_input("Current Password", type="password")
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm New Password", type="password")
+        current_password = st.text_input("Current Password", type="password", key=f"current_pw_teacher_{user_info['username']}")
+        new_password = st.text_input("New Password", type="password", key=f"new_pw_teacher_{user_info['username']}")
+        confirm_password = st.text_input("Confirm New Password", type="password", key=f"confirm_pw_teacher_{user_info['username']}")
         
-        if st.button("Change Password"):
+        if st.button("Change Password", key=f"change_pw_teacher_{user_info['username']}"):
             # Verify current password
             user = authenticate(user_info["username"], current_password)
             if not user:
@@ -920,15 +879,6 @@ def senator_interface(user_info):
     """Senator interface"""
     st.subheader(" Senate Platform")
     
-    # Check for new messages notification
-    messages_data = load_json(MESSAGES_FILE)
-    new_messages = [m for m in messages_data.get("messages", []) 
-                    if m.get("timestamp")]
-    
-    if new_messages:
-        with st.container():
-            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
-    
     tab1, tab2, tab3, tab4 = st.tabs(["Send Message", "Senate Discussion", "School Messages", "Account Settings"])
     
     with tab1:
@@ -940,7 +890,8 @@ def senator_interface(user_info):
             message_content = st.text_area(
                 "Your Message",
                 placeholder="Share your message...",
-                height=150
+                height=150,
+                key=f"msg_content_senator_{user_info['username']}"
             )
         
         with col2:
@@ -951,20 +902,22 @@ def senator_interface(user_info):
                     "all_school": "Whole School",
                     "senate": "Senate Only",
                     "super_admin": "Super Admin"
-                }[x]
+                }[x],
+                key=f"recipient_senator_{user_info['username']}"
             )
             
             is_anonymous = st.checkbox(
                 "Send Anonymously to School",
                 value=False,
                 help="Only available when sending to whole school",
-                disabled=(recipient != "all_school")
+                disabled=(recipient != "all_school"),
+                key=f"is_anon_senator_{user_info['username']}"
             )
             
             if recipient != "all_school":
                 st.info("ℹ Messages to Senate and Super Admin are not anonymous")
         
-        if st.button(" Send Message", type="primary"):
+        if st.button(" Send Message", type="primary", key=f"send_msg_senator_{user_info['username']}"):
             if message_content.strip():
                 anon_name = None
                 use_anon = is_anonymous and recipient == "all_school"
@@ -991,7 +944,7 @@ def senator_interface(user_info):
         
         if messages:
             for msg in messages:
-                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info, context="senator_senate")
+                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info)
         else:
             st.info("No senate messages yet")
     
@@ -1004,7 +957,7 @@ def senator_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info, context="senator_school")
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info)
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -1017,11 +970,11 @@ def senator_interface(user_info):
         st.markdown("#### Change Password")
         st.info("Keep your password secure and change it regularly")
         
-        current_password = st.text_input("Current Password", type="password")
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm New Password", type="password")
+        current_password = st.text_input("Current Password", type="password", key=f"current_pw_senator_{user_info['username']}")
+        new_password = st.text_input("New Password", type="password", key=f"new_pw_senator_{user_info['username']}")
+        confirm_password = st.text_input("Confirm New Password", type="password", key=f"confirm_pw_senator_{user_info['username']}")
         
-        if st.button("Change Password"):
+        if st.button("Change Password", key=f"change_pw_senator_{user_info['username']}"):
             # Verify current password
             user = authenticate(user_info["username"], current_password)
             if not user:
@@ -1040,15 +993,6 @@ def admin_interface(user_info):
     """Admin interface - similar to teacher with additional viewing capabilities"""
     st.subheader(" Administration Panel")
     
-    # Check for new messages notification
-    messages_data = load_json(MESSAGES_FILE)
-    new_messages = [m for m in messages_data.get("messages", []) 
-                    if m.get("timestamp")]
-    
-    if new_messages:
-        with st.container():
-            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
-    
     tab1, tab2, tab3 = st.tabs(["Send Message", "View Messages", "Account Settings"])
     
     with tab1:
@@ -1058,7 +1002,8 @@ def admin_interface(user_info):
         message_content = st.text_area(
             "Your Message",
             placeholder="Share announcements, feedback, or information...",
-            height=150
+            height=150,
+            key=f"msg_content_admin_{user_info['username']}"
         )
         
         recipient = st.selectbox(
@@ -1068,10 +1013,11 @@ def admin_interface(user_info):
                 "all_school": "Whole School",
                 "senate": "Senate",
                 "super_admin": "Super Admin"
-            }[x]
+            }[x],
+            key=f"recipient_admin_{user_info['username']}"
         )
         
-        if st.button(" Send Message", type="primary"):
+        if st.button(" Send Message", type="primary", key=f"send_msg_admin_{user_info['username']}"):
             if message_content.strip():
                 create_message(
                     sender_id=user_info.get("name", user_info["username"]),
@@ -1094,7 +1040,7 @@ def admin_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info, context="admin")
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info)
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -1107,122 +1053,11 @@ def admin_interface(user_info):
         st.markdown("#### Change Password")
         st.info("Keep your password secure and change it regularly")
         
-        current_password = st.text_input("Current Password", type="password")
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm New Password", type="password")
+        current_password = st.text_input("Current Password", type="password", key=f"current_pw_admin_{user_info['username']}")
+        new_password = st.text_input("New Password", type="password", key=f"new_pw_admin_{user_info['username']}")
+        confirm_password = st.text_input("Confirm New Password", type="password", key=f"confirm_pw_admin_{user_info['username']}")
         
-        if st.button("Change Password"):
-            # Verify current password
-            user = authenticate(user_info["username"], current_password)
-            if not user:
-                st.error(" Current password is incorrect")
-            elif new_password != confirm_password:
-                st.error(" New passwords do not match")
-            elif len(new_password) < 6:
-                st.error(" New password must be at least 6 characters")
-            else:
-                if reset_user_password(user_info["username"], new_password):
-                    st.success(" Password changed successfully!")
-                else:
-                    st.error(" Failed to change password")
-
-def school_admin_interface(user_info):
-    """School administration interface - similar to teachers with admin capabilities"""
-    st.subheader(" School Administration Panel")
-    
-    # Check for new messages notification
-    messages_data = load_json(MESSAGES_FILE)
-    new_messages = [m for m in messages_data.get("messages", []) 
-                    if m.get("timestamp")]
-    
-    if new_messages:
-        with st.container():
-            st.info(f"📨 You have {len(new_messages)} message(s) from the school community")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["Send Message", "View Messages", "School Feed", "Account Settings"])
-    
-    with tab1:
-        st.markdown("### Send a Message")
-        st.info(" School Administrators must identify themselves - all messages are sent with your name")
-        
-        message_content = st.text_area(
-            "Your Message",
-            placeholder="Share announcements, feedback, or administrative information...",
-            height=150
-        )
-        
-        recipient = st.selectbox(
-            "Send To",
-            ["all_school", "senate", "super_admin"],
-            format_func=lambda x: {
-                "all_school": "Whole School",
-                "senate": "Senate",
-                "super_admin": "Super Admin"
-            }[x]
-        )
-        
-        if st.button(" Send Message", type="primary"):
-            if message_content.strip():
-                create_message(
-                    sender_id=user_info.get("name", user_info["username"]),
-                    sender_role="school_admin",
-                    content=message_content,
-                    recipient=recipient,
-                    is_anonymous=False
-                )
-                st.success(" Message sent successfully!")
-                st.rerun()
-            else:
-                st.error(" Please enter a message")
-    
-    with tab2:
-        st.markdown("### All School Messages")
-        st.caption("Messages from all users in the school community")
-        
-        # Show notification badge with message count
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            st.markdown(f"<span style='background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.9rem; display: inline-block;'>📨 {len(new_messages)} New</span>", unsafe_allow_html=True)
-        
-        messages = get_messages(recipient="all_school")
-        
-        if messages:
-            for idx, msg in enumerate(messages):
-                with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="school_admin", enable_comments=True, user_info=user_info, context="school_admin_view")
-                    
-                    if idx < len(messages) - 1:
-                        st.markdown("<br>", unsafe_allow_html=True)
-        else:
-            st.info(" No messages available")
-    
-    with tab3:
-        st.markdown("### School Feed")
-        st.caption("Messages sorted by engagement - most popular and recent first")
-        
-        messages = get_messages(recipient="all_school")
-        
-        if messages:
-            for idx, msg in enumerate(messages):
-                with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="school_admin", enable_comments=True, user_info=user_info, context="school_admin_feed")
-                    
-                    if idx < len(messages) - 1:
-                        st.markdown("<br>", unsafe_allow_html=True)
-        else:
-            st.info(" No messages yet")
-    
-    with tab4:
-        st.markdown("### Account Settings")
-        
-        st.markdown("#### Change Password")
-        st.info("Keep your password secure and change it regularly")
-        
-        current_password = st.text_input("Current Password", type="password")
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm New Password", type="password")
-        
-        if st.button("Change Password"):
+        if st.button("Change Password", key=f"change_pw_admin_{user_info['username']}"):
             # Verify current password
             user = authenticate(user_info["username"], current_password)
             if not user:
@@ -1297,24 +1132,19 @@ def super_admin_interface(user_info):
         if messages:
             for msg in messages:
                 with st.container():
-                    render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info, context="super_admin_all")
+                    render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info)
                     
                     col1, col2 = st.columns([3, 1])
                     with col2:
                         if not msg.get("flagged", False):
-                            with st.expander(f"🚩 Flag Message"):
+                            if st.button(f"🚩 Flag", key=f"flag_msg_{msg['id']}"):
                                 reason = st.text_input(
                                     "Reason for flagging",
-                                    placeholder="e.g., Abusive language, Bullying, Hate speech",
                                     key=f"reason_{msg['id']}"
                                 )
-                                if st.button("Submit Flag", key=f"submit_flag_{msg['id']}", type="primary"):
-                                    if reason.strip():
-                                        flag_message(msg["id"], reason.strip())
-                                        st.success("✅ Message flagged successfully!")
-                                        st.rerun()
-                                    else:
-                                        st.error("Please provide a reason for flagging")
+                                if reason:
+                                    flag_message(msg["id"], reason)
+                                    st.rerun()
         else:
             st.info("No messages found")
     
@@ -1325,7 +1155,7 @@ def super_admin_interface(user_info):
         if messages:
             st.warning(f" {len(messages)} flagged message(s) requiring attention")
             for msg in messages:
-                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info, context="super_admin_flagged")
+                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info)
         else:
             st.success(" No flagged messages")
     
@@ -1333,12 +1163,12 @@ def super_admin_interface(user_info):
         st.markdown("### User Management")
         
         with st.expander(" Create New User"):
-            new_username = st.text_input("Username")
-            new_password = st.text_input("Password", type="password")
-            new_name = st.text_input("Full Name")
-            new_role = st.selectbox("Role", ["student", "teacher", "school_admin", "senator", "admin"])
+            new_username = st.text_input("Username", key="new_user_username")
+            new_password = st.text_input("Password", type="password", key="new_user_password")
+            new_name = st.text_input("Full Name", key="new_user_name")
+            new_role = st.selectbox("Role", ["student", "teacher", "senator", "admin"], key="new_user_role")
             
-            if st.button("Create User"):
+            if st.button("Create User", key="create_user_btn"):
                 if new_username and new_password:
                     users = load_json(USERS_FILE)
                     if new_username not in users:
@@ -1383,8 +1213,8 @@ def super_admin_interface(user_info):
                         )
                         edit_role = st.selectbox(
                             "Role",
-                            ["student", "teacher", "school_admin", "senator", "admin"],
-                            index=["student", "teacher", "school_admin", "senator", "admin"].index(info['role']),
+                            ["student", "teacher", "senator", "admin"],
+                            index=["student", "teacher", "senator", "admin"].index(info['role']),
                             key=f"edit_role_{username}"
                         )
                         
@@ -1520,6 +1350,7 @@ def main():
             st.markdown(f"**Role:** {user_info['role'].replace('_', ' ').title()}")
             
             if st.button(" Logout"):
+            if st.button(" Logout", key=f"logout_btn_{user_info['username']}"):
                 st.session_state.authenticated = False
                 st.session_state.user_info = None
                 st.rerun()
@@ -1557,8 +1388,6 @@ def main():
             student_interface(user_info)
         elif role == "teacher":
             teacher_interface(user_info)
-        elif role == "school_admin":
-            school_admin_interface(user_info)
         elif role == "senator":
             senator_interface(user_info)
         elif role == "admin":
