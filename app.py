@@ -543,7 +543,7 @@ def render_comments(message, user_id, user_name, user_role):
     else:
         st.info("No comments yet. Be the first to comment!")
 
-def render_message_card(message, show_sender_id=False, user_id=None, show_reactions=True, user_role=None, enable_comments=True, user_info=None):
+def render_message_card(message, show_sender_id=False, user_id=None, show_reactions=True, user_role=None, enable_comments=True, user_info=None, context=""):
     """Render a message card"""
     flagged_class = "flagged" if message.get("flagged", False) else ""
     
@@ -592,9 +592,10 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
         # Delete button for owner or super admin
         if is_owner or is_super_admin:
             with col2:
+                delete_key = f"delete_msg_{message['id']}_{context}" if context else f"delete_msg_{message['id']}"
                 if st.button(
                     "🗑️ Delete",
-                    key=f"delete_msg_{message['id']}",
+                    key=delete_key,
                     type="secondary",
                     use_container_width=True
                 ):
@@ -623,9 +624,10 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
                 has_reacted = user_id in users
                 button_type = "primary" if has_reacted else "secondary"
                 
+                react_key = f"react_msg_{message['id']}_{emoji}_{context}" if context else f"react_msg_{message['id']}_{emoji}"
                 if st.button(
                     f"{emoji} {count}",
-                    key=f"react_msg_{message['id']}_{emoji}",
+                    key=react_key,
                     type=button_type,
                     use_container_width=True
                 ):
@@ -756,7 +758,7 @@ def student_interface(user_info):
             # Infinite scroll style - show messages in a continuous feed
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info["username"], user_role="student", enable_comments=True, user_info=user_info)
+                    render_message_card(msg, user_id=user_info["username"], user_role="student", enable_comments=True, user_info=user_info, context=f"student_{user_info['username']}_{idx}")
                     
                     # Add spacing between messages
                     if idx < len(messages) - 1:
@@ -843,7 +845,7 @@ def teacher_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info)
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info, context=f"teacher_{user_info['username']}_{idx}")
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -943,8 +945,8 @@ def senator_interface(user_info):
         messages = get_messages(recipient="senate")
         
         if messages:
-            for msg in messages:
-                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info)
+            for idx, msg in enumerate(messages):
+                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info, context=f"senator_discuss_{user_info['username']}_{idx}")
         else:
             st.info("No senate messages yet")
     
@@ -957,7 +959,7 @@ def senator_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info)
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info, context=f"senator_feed_{user_info['username']}_{idx}")
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -1040,7 +1042,7 @@ def admin_interface(user_info):
         if messages:
             for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info)
+                    render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info, context=f"admin_feed_{user_info['username']}_{idx}")
                     
                     if idx < len(messages) - 1:
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -1130,17 +1132,17 @@ def super_admin_interface(user_info):
         st.markdown(f"**Total Messages:** {len(messages)}")
         
         if messages:
-            for msg in messages:
+            for idx, msg in enumerate(messages):
                 with st.container():
-                    render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info)
+                    render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info, context=f"super_all_{idx}")
                     
                     col1, col2 = st.columns([3, 1])
                     with col2:
                         if not msg.get("flagged", False):
-                            if st.button(f"🚩 Flag", key=f"flag_msg_{msg['id']}"):
+                            if st.button(f"🚩 Flag", key=f"flag_msg_{msg['id']}_{idx}"):
                                 reason = st.text_input(
                                     "Reason for flagging",
-                                    key=f"reason_{msg['id']}"
+                                    key=f"reason_{msg['id']}_{idx}"
                                 )
                                 if reason:
                                     flag_message(msg["id"], reason)
@@ -1154,8 +1156,8 @@ def super_admin_interface(user_info):
         
         if messages:
             st.warning(f" {len(messages)} flagged message(s) requiring attention")
-            for msg in messages:
-                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info)
+            for idx, msg in enumerate(messages):
+                render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info, context=f"super_flagged_{idx}")
         else:
             st.success(" No flagged messages")
     
