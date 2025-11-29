@@ -1529,20 +1529,29 @@ def super_admin_interface(user_info):
                             value=info.get("name", ""),
                             key=f"edit_name_{username}"
                         )
+                        # Role selection - compute index safely in case stored role is unexpected
+                        role_options = ["student", "teacher", "senator", "admin"]
+                        try:
+                            role_index = role_options.index(info.get('role', 'student'))
+                        except ValueError:
+                            role_index = 0
                         edit_role = st.selectbox(
                             "Role",
-                            ["student", "teacher", "senator", "admin"],
-                            index=["student", "teacher", "senator", "admin"].index(info['role']),
+                            role_options,
+                            index=role_index,
                             key=f"edit_role_{username}"
                         )
                         
                         col_save, col_cancel = st.columns(2)
                         with col_save:
                             if st.button("Save Changes", key=f"save_edit_{username}"):
-                                if edit_user(username, new_name=edit_name, new_role=edit_role):
+                                success = edit_user(username, new_name=edit_name, new_role=edit_role)
+                                if success:
                                     st.success(f" User {username} updated successfully!")
                                     st.session_state[f"edit_{username}"] = False
                                     st.rerun()
+                                else:
+                                    st.error("Failed to update user. Check server logs and try again.")
                         
                         with col_cancel:
                             if st.button("Cancel", key=f"cancel_edit_{username}"):
