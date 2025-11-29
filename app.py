@@ -65,38 +65,27 @@ st.markdown("""
         border-radius: 12px;
         font-size: 0.85rem;
         font-weight: 600;
+        background: transparent;
+        color: #333;
+        border: 1px solid rgba(0,0,0,0.08);
     }
     
-    .badge-student {
-        background: #e3f2fd;
-        color: #1976d2;
+    .badge-student, .badge-teacher, .badge-senator, .badge-admin, .badge-super-admin {
+        background: transparent;
+        color: #333;
+        border: 1px solid rgba(0,0,0,0.08);
     }
-    
-    .badge-teacher {
-        background: #f3e5f5;
-        color: #7b1fa2;
-    }
-    
-    .badge-senator {
-        background: #e8f5e9;
-        color: #388e3c;
-    }
-    
-    .badge-admin {
-        background: #fff3e0;
-        color: #f57c00;
-    }
-    
-    .badge-super-admin {
-        background: #fce4ec;
-        color: #c2185b;
-    }
-    
+
+    /* Outline-style buttons for a clean, professional look */
     .stButton>button {
         width: 100%;
         border-radius: 8px;
-        padding: 0.5rem 1rem;
+        padding: 0.45rem 1rem;
         font-weight: 600;
+        background: transparent !important;
+        color: #333 !important;
+        border: 1px solid rgba(0,0,0,0.12) !important;
+        box-shadow: none !important;
     }
     
     .fb-nav-item {
@@ -128,24 +117,25 @@ st.markdown("""
         width: 40px;
         height: 40px;
         border-radius: 50%;
-        background: #667eea;
-        color: white;
-        font-weight: bold;
+        background: transparent;
+        color: #333;
+        font-weight: 700;
         text-align: center;
         line-height: 40px;
+        border: 1px solid rgba(0,0,0,0.12);
     }
     
     .notification-item {
         padding: 0.75rem;
-        background: #f0f2f5;
+        background: transparent;
         border-radius: 8px;
         margin-bottom: 0.5rem;
-        border-left: 3px solid #667eea;
+        border: 1px solid rgba(0,0,0,0.06);
     }
     .notification-item.unread {
-        background-color: #e7f3ff;
-        border-left-color: #0a66c2;
-        font-weight: 500;
+        background-color: rgba(10,102,194,0.04);
+        border: 1px solid rgba(10,102,194,0.15);
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
