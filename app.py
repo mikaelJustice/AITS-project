@@ -1906,103 +1906,122 @@ def main():
         user_info = st.session_state.user_info
         role = user_info["role"]
         
-        # Facebook-like 3-column layout
-        col_left, col_center, col_right = st.columns([1, 2, 1.2])
+        # TOP BAR: Navigation and Notifications
+        st.markdown("---")
+        top_col1, top_col2, top_col3, top_col4, top_col5, top_col6 = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1])
         
-        # LEFT SIDEBAR: Navigation
-        with col_left:
-            st.markdown("### 🎓 EIA Voice")
-            st.markdown("---")
-            
-            # Nav items
-            st.markdown(f"**{user_info['name']}**")
-            st.markdown(f"*{role.replace('_', ' ').title()}*")
-            st.markdown("---")
-            
+        with top_col1:
             if st.button("🏠 Home", key="nav_home", use_container_width=True):
                 st.session_state['current_view'] = 'home'
                 st.rerun()
-            
-            if st.button("🔔 Notifications", key="nav_notif", use_container_width=True):
-                st.session_state['current_view'] = 'notifications'
-                st.rerun()
-            
-            if st.button("⚙️ Settings", key="nav_settings", use_container_width=True):
-                st.session_state['current_view'] = 'settings'
-                st.rerun()
-            
-            if st.button("👥 About", key="nav_about", use_container_width=True):
-                st.session_state['current_view'] = 'about'
-                st.rerun()
-            
-            st.markdown("---")
-            if st.button("🚪 Logout", key=f"logout_btn_{user_info['username']}", use_container_width=True):
-                st.session_state.authenticated = False
-                st.session_state.user_info = None
-                st.rerun()
         
-        # CENTER: Feed or specific view
-        with col_center:
-            current_view = st.session_state.get('current_view', 'home')
-            
-            if current_view == 'home':
-                if role == "student":
-                    student_feed(user_info)
-                elif role == "teacher":
-                    teacher_feed(user_info)
-                elif role == "senator":
-                    senator_feed(user_info)
-                elif role == "admin":
-                    admin_feed(user_info)
-                elif role == "super_admin":
-                    super_admin_feed(user_info)
-            
-            elif current_view == 'settings':
-                st.subheader("⚙️ Account Settings")
-                render_account_settings(user_info)
-            
-            elif current_view == 'about':
-                st.subheader("📖 Community Guidelines")
-                st.markdown("""
-                ### Guidelines
-                - Be respectful and constructive
-                - No bullying or harassment
-                - No profanity or offensive language
-                - Focus on solutions, not problems
-                - Respect anonymity of others
-                
-                ### 🚩 Message Flagging
-                Messages may be flagged by Super Admin if they:
-                - Contain abusive/offensive content
-                - Violate community guidelines
-                - Could harm or mislead others
-                """)
-        
-        # RIGHT SIDEBAR: Notifications & Info
-        with col_right:
-            st.markdown("### 🔔 Notifications")
+        with top_col2:
             try:
                 unread = get_unread_notifications_count(user_info['username'])
             except Exception:
                 unread = 0
             
-            st.metric("Unread", unread)
+            # Notification button with badge
+            if unread > 0:
+                st.markdown(f"""
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <button style="width: 100%; padding: 8px; background-color: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                        🔔 Notifications <span style="background-color: #f44336; color: white; border-radius: 50%; padding: 2px 6px; margin-left: 5px; font-size: 12px;">{unread}</span>
+                    </button>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("View Notifications", key="nav_notif", use_container_width=True, label_visibility="collapsed"):
+                    st.session_state['current_view'] = 'notifications'
+                    st.rerun()
+            else:
+                if st.button("🔔 Notifications", key="nav_notif", use_container_width=True):
+                    st.session_state['current_view'] = 'notifications'
+                    st.rerun()
+        
+        with top_col3:
+            if st.button("⚙️ Settings", key="nav_settings", use_container_width=True):
+                st.session_state['current_view'] = 'settings'
+                st.rerun()
+        
+        with top_col4:
+            if st.button("👥 About", key="nav_about", use_container_width=True):
+                st.session_state['current_view'] = 'about'
+                st.rerun()
+        
+        with top_col5:
+            st.markdown(f"**{user_info['name']}**")
+        
+        with top_col6:
+            if st.button("🚪 Logout", key=f"logout_btn_{user_info['username']}", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.user_info = None
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # MAIN CONTENT AREA
+        current_view = st.session_state.get('current_view', 'home')
+        
+        if current_view == 'home':
+            if role == "student":
+                student_feed(user_info)
+            elif role == "teacher":
+                teacher_feed(user_info)
+            elif role == "senator":
+                senator_feed(user_info)
+            elif role == "admin":
+                admin_feed(user_info)
+            elif role == "super_admin":
+                super_admin_feed(user_info)
+        
+        elif current_view == 'settings':
+            st.subheader("⚙️ Account Settings")
+            render_account_settings(user_info)
+        
+        elif current_view == 'about':
+            st.subheader("📖 Community Guidelines")
+            st.markdown("""
+            ### Guidelines
+            - Be respectful and constructive
+            - No bullying or harassment
+            - No profanity or offensive language
+            - Focus on solutions, not problems
+            - Respect anonymity of others
+            
+            ### 🚩 Message Flagging
+            Messages may be flagged by Super Admin if they:
+            - Contain abusive/offensive content
+            - Violate community guidelines
+            - Could harm or mislead others
+            """)
+        
+        elif current_view == 'notifications':
+            st.subheader("🔔 All Notifications")
+            try:
+                unread = get_unread_notifications_count(user_info['username'])
+            except Exception:
+                unread = 0
             
             notifs = load_notifications().get(user_info['username'], [])
+            
             if notifs:
-                for n in notifs[:5]:  # Show latest 5
-                    read_status = "✓" if n.get('read') else "●"
+                st.markdown(f"**Unread Notifications:** {unread}")
+                st.markdown("---")
+                
+                for n in notifs:  # Show all notifications
+                    read_status = "🔔" if not n.get('read') else "✓"
                     st.markdown(f"""
                     <div class="notification-item {'unread' if not n.get('read') else ''}">
-                    {read_status} {n.get('text')}
+                    {read_status} {n.get('text')}<br>
+                    <small>{n.get('timestamp', 'N/A')}</small>
                     </div>
                     """, unsafe_allow_html=True)
                 
-                if st.button("Mark all read", key=f"mark_read_{user_info['username']}", use_container_width=True):
+                if st.button("Mark all notifications as read", key=f"mark_read_{user_info['username']}", use_container_width=True):
                     mark_all_notifications_read(user_info['username'])
                     st.rerun()
             else:
-                st.info("No notifications")
+                st.info("No notifications yet")
 
 if __name__ == "__main__":
     main()
