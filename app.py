@@ -98,6 +98,55 @@ st.markdown("""
         padding: 0.5rem 1rem;
         font-weight: 600;
     }
+    
+    .fb-nav-item {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+        font-weight: 500;
+        color: #333;
+    }
+    
+    .feed-container {
+        max-width: 650px;
+        margin: 0 auto;
+    }
+    
+    .post-composer {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .post-composer-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #667eea;
+        color: white;
+        font-weight: bold;
+        text-align: center;
+        line-height: 40px;
+    }
+    
+    .notification-item {
+        padding: 0.75rem;
+        background: #f0f2f5;
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
+        border-left: 3px solid #667eea;
+    }
+    .notification-item.unread {
+        background-color: #e7f3ff;
+        border-left-color: #0a66c2;
+        font-weight: 500;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -111,6 +160,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 USERS_FILE = DATA_DIR / "users.json"
 MESSAGES_FILE = DATA_DIR / "messages.json"
 ANONYMOUS_NAMES_FILE = DATA_DIR / "anonymous_names.json"
+NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 
 def load_json(filepath):
     """Load JSON data from file"""
@@ -171,6 +221,9 @@ def initialize_data():
     
     if not ANONYMOUS_NAMES_FILE.exists():
         save_json(ANONYMOUS_NAMES_FILE, {})
+    
+    if not NOTIFICATIONS_FILE.exists():
+        save_json(NOTIFICATIONS_FILE, {})
 
 # Initialize data
 initialize_data()
@@ -521,6 +574,82 @@ def reset_anonymous_name(user_id):
         anon_names[user_id] = new_name
         save_json(ANONYMOUS_NAMES_FILE, anon_names)
         return new_name
+
+# ============================================================================
+# NOTIFICATION MANAGEMENT
+# ============================================================================
+
+def load_notifications():
+    """Load all notifications"""
+    return load_json(NOTIFICATIONS_FILE)
+
+def save_notifications(data):
+    """Save notifications to file"""
+    save_json(NOTIFICATIONS_FILE, data)
+
+def add_notification(username, message_id, text):
+    """Add a notification for a user"""
+    notifs = load_notifications()
+    if username not in notifs:
+        notifs[username] = []
+    
+    notifs[username].append({
+        "id": secrets.token_hex(4),
+        "message_id": message_id,
+        "text": text,
+        "read": False,
+        "timestamp": datetime.now().isoformat()
+    })
+    save_notifications(notifs)
+
+def get_unread_notifications_count(username):
+    """Get count of unread notifications for a user"""
+    notifs = load_notifications().get(username, [])
+    return sum(1 for n in notifs if not n.get("read", False))
+
+def mark_notification_read(username, notif_id):
+    """Mark a specific notification as read"""
+    notifs = load_notifications()
+    if username in notifs:
+        for n in notifs[username]:
+            if n["id"] == notif_id:
+                n["read"] = True
+                break
+        save_notifications(notifs)
+
+def mark_all_notifications_read(username):
+    """Mark all notifications as read for a user"""
+    notifs = load_notifications()
+    if username in notifs:
+        for n in notifs[username]:
+            n["read"] = True
+        save_notifications(notifs)
+
+def distribute_notifications_for_message(message):
+    """Distribute notifications based on message recipient"""
+    users = load_json(USERS_FILE)
+    recipient = message.get("recipient", "all_school")
+    sender = message.get("sender_display", "Unknown")
+    
+    # Determine which users should receive notification
+    notification_recipients = []
+    
+    if recipient == "all_school":
+        notification_recipients = list(users.keys())
+    elif recipient == "senate":
+        notification_recipients = [u for u, info in users.items() if info.get("role") == "senator"]
+    elif recipient == "teachers":
+        notification_recipients = [u for u, info in users.items() if info.get("role") == "teacher"]
+    elif recipient == "admins":
+        notification_recipients = [u for u, info in users.items() if info.get("role") == "admin"]
+    elif recipient == "super_admin":
+        notification_recipients = [u for u, info in users.items() if info.get("role") == "super_admin"]
+    
+    # Create notification for each recipient (except sender)
+    for username in notification_recipients:
+        if username != message.get("sender_id"):  # Don't notify sender
+            text = f"New message from {sender}"
+            add_notification(username, message.get("id"), text)
 
 # ============================================================================
 # USER INTERFACE COMPONENTS
@@ -1455,6 +1584,283 @@ def super_admin_interface(user_info):
                 st.metric(emoji, count)
 
 # ============================================================================
+# ACCOUNT SETTINGS & FEED RENDERING
+# ============================================================================
+
+def render_account_settings(user_info):
+    """Render account settings"""
+    st.markdown("#### Change Password")
+    st.info("Keep your password secure and change it regularly")
+    
+    current_password = st.text_input("Current Password", type="password", key=f"current_pw_{user_info['username']}")
+    new_password = st.text_input("New Password", type="password", key=f"new_pw_{user_info['username']}")
+    confirm_password = st.text_input("Confirm New Password", type="password", key=f"confirm_pw_{user_info['username']}")
+    
+    if st.button("Change Password", key=f"change_pw_{user_info['username']}"):
+        user = authenticate(user_info["username"], current_password)
+        if not user:
+            st.error("Current password is incorrect")
+        elif new_password != confirm_password:
+            st.error("New passwords do not match")
+        elif len(new_password) < 6:
+            st.error("New password must be at least 6 characters")
+        else:
+            if reset_user_password(user_info["username"], new_password):
+                st.success("Password changed successfully!")
+            else:
+                st.error("Failed to change password")
+
+def render_post_composer(user_info, role):
+    """Render the post composer box"""
+    st.markdown('<div class="post-composer">', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([0.15, 0.85])
+    
+    with col1:
+        avatar_char = user_info['name'][0].upper() if user_info['name'] else user_info['username'][0].upper()
+        st.markdown(f'<div class="post-composer-avatar">{avatar_char}</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"**{user_info['name']}** ({role.replace('_', ' ').title()})")
+        st.markdown("*What's on your mind?*")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def student_feed(user_info):
+    """Student feed with post composer and messages"""
+    render_post_composer(user_info, "student")
+    
+    # Post composer
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        message_input = st.text_input(
+            "Your Message (press Enter to send)",
+            placeholder="Share your thoughts...",
+            key=f"msg_input_student_{user_info['username']}",
+            on_change=_student_send_on_enter,
+            args=(user_info['username'],)
+        )
+    
+    with col2:
+        recipient = st.selectbox(
+            "Send To",
+            ["all_school", "senate"],
+            format_func=lambda x: {"all_school": "School", "senate": "Senate"}[x],
+            key=f"recipient_student_{user_info['username']}"
+        )
+    
+    # Anonymous checkbox
+    is_anonymous = st.checkbox(
+        "Send Anonymously",
+        value=True,
+        key=f"is_anon_student_{user_info['username']}",
+        disabled=(recipient != "all_school")
+    )
+    
+    st.markdown("---")
+    
+    # Feed
+    st.markdown("### Messages")
+    messages = get_messages(recipient="all_school")
+    
+    if messages:
+        for idx, msg in enumerate(messages):
+            with st.container():
+                render_message_card(msg, user_id=user_info["username"], user_role="student", enable_comments=True, user_info=user_info, context=f"student_{user_info['username']}_{idx}")
+                if idx < len(messages) - 1:
+                    st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.info("No messages yet. Be the first to share!")
+
+def teacher_feed(user_info):
+    """Teacher feed"""
+    render_post_composer(user_info, "teacher")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        message_input = st.text_input(
+            "Your Message (press Enter to send)",
+            placeholder="Share announcements...",
+            key=f"msg_input_teacher_{user_info['username']}",
+            on_change=_teacher_send_on_enter,
+            args=(user_info['username'],)
+        )
+    
+    with col2:
+        recipient = st.selectbox(
+            "Send To",
+            ["all_school", "teachers", "senate", "super_admin"],
+            format_func=lambda x: {"all_school": "School", "teachers": "Teachers", "senate": "Senate", "super_admin": "Admin"}[x],
+            key=f"recipient_teacher_{user_info['username']}"
+        )
+    
+    st.markdown("---")
+    
+    view = st.selectbox("View", ["all_school", "teachers"], format_func=lambda x: {"all_school": "School Feed", "teachers": "Teachers Only"}[x], key=f"view_teacher_{user_info['username']}")
+    
+    messages = get_messages(recipient=view)
+    
+    if messages:
+        for idx, msg in enumerate(messages):
+            with st.container():
+                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="teacher", enable_comments=True, user_info=user_info, context=f"teacher_{user_info['username']}_{idx}")
+                if idx < len(messages) - 1:
+                    st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.info("No messages available")
+
+def senator_feed(user_info):
+    """Senator feed"""
+    render_post_composer(user_info, "senator")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        message_input = st.text_input(
+            "Your Message (press Enter to send)",
+            placeholder="Share your message...",
+            key=f"msg_input_senator_{user_info['username']}",
+            on_change=_senator_send_on_enter,
+            args=(user_info['username'],)
+        )
+    
+    with col2:
+        recipient = st.selectbox(
+            "Send To",
+            ["all_school", "senate", "teachers", "admins", "super_admin"],
+            format_func=lambda x: {"all_school": "School", "senate": "Senate", "teachers": "Teachers", "admins": "Admins", "super_admin": "Admin"}[x],
+            key=f"recipient_senator_{user_info['username']}"
+        )
+    
+    is_anonymous = st.checkbox(
+        "Send Anonymously",
+        value=False,
+        key=f"is_anon_senator_{user_info['username']}",
+        disabled=(recipient != "all_school")
+    )
+    
+    st.markdown("---")
+    
+    messages = get_messages(recipient="all_school")
+    
+    if messages:
+        for idx, msg in enumerate(messages):
+            with st.container():
+                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="senator", enable_comments=True, user_info=user_info, context=f"senator_{user_info['username']}_{idx}")
+                if idx < len(messages) - 1:
+                    st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.info("No school messages yet")
+
+def admin_feed(user_info):
+    """Admin feed"""
+    render_post_composer(user_info, "admin")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        message_input = st.text_input(
+            "Your Message (press Enter to send)",
+            placeholder="Share announcements...",
+            key=f"msg_input_admin_{user_info['username']}",
+            on_change=_admin_send_on_enter,
+            args=(user_info['username'],)
+        )
+    
+    with col2:
+        recipient = st.selectbox(
+            "Send To",
+            ["all_school", "admins", "senate", "super_admin"],
+            format_func=lambda x: {"all_school": "School", "admins": "Admins", "senate": "Senate", "super_admin": "Admin"}[x],
+            key=f"recipient_admin_{user_info['username']}"
+        )
+    
+    st.markdown("---")
+    
+    view = st.selectbox("View", ["all_school", "admins"], format_func=lambda x: {"all_school": "School Feed", "admins": "Admins Only"}[x], key=f"view_admin_{user_info['username']}")
+    
+    messages = get_messages(recipient=view)
+    
+    if messages:
+        for idx, msg in enumerate(messages):
+            with st.container():
+                render_message_card(msg, user_id=user_info.get("name", user_info["username"]), user_role="admin", enable_comments=True, user_info=user_info, context=f"admin_{user_info['username']}_{idx}")
+                if idx < len(messages) - 1:
+                    st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.info("No messages available")
+
+def super_admin_feed(user_info):
+    """Super admin feed"""
+    st.subheader("Admin Dashboard")
+    
+    tab1, tab2, tab3 = st.tabs(["All Messages", "Flagged", "User Management"])
+    
+    with tab1:
+        filter_recipient = st.selectbox(
+            "Filter by Recipient",
+            ["all", "all_school", "senate"],
+            format_func=lambda x: {"all": "All", "all_school": "School", "senate": "Senate"}[x]
+        )
+        
+        messages = get_messages(recipient=None if filter_recipient == "all" else filter_recipient)
+        st.markdown(f"**Total Messages:** {len(messages)}")
+        
+        for idx, msg in enumerate(messages):
+            render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info, context=f"super_all_{idx}")
+    
+    with tab2:
+        messages = [m for m in get_messages() if m.get("flagged", False)]
+        st.warning(f"{len(messages)} flagged message(s)")
+        
+        for idx, msg in enumerate(messages):
+            render_message_card(msg, show_sender_id=True, user_id=user_info["username"], show_reactions=False, user_role="super_admin", enable_comments=False, user_info=user_info, context=f"super_flagged_{idx}")
+    
+    with tab3:
+        st.markdown("### User Management")
+        with st.expander("Create New User"):
+            new_username = st.text_input("Username", key="new_user_username")
+            new_password = st.text_input("Password", type="password", key="new_user_password")
+            new_name = st.text_input("Full Name", key="new_user_name")
+            new_role = st.selectbox("Role", ["student", "teacher", "senator", "admin"], key="new_user_role")
+            
+            if st.button("Create User", key="create_user_btn"):
+                if new_username and new_password:
+                    users = load_json(USERS_FILE)
+                    if new_username not in users:
+                        users[new_username] = {
+                            "password": hash_password(new_password),
+                            "role": new_role,
+                            "name": new_name
+                        }
+                        save_json(USERS_FILE, users)
+                        st.success(f"User {new_username} created!")
+                    else:
+                        st.error("Username exists")
+                else:
+                    st.error("Fill in all fields")
+        
+        st.markdown("### Registered Users")
+        users = load_json(USERS_FILE)
+        
+        for username, info in users.items():
+            if username != "superadmin":
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    st.markdown(f"**{username}** ({info['role']})")
+                
+                with col2:
+                    if st.button("Edit", key=f"edit_btn_{username}"):
+                        st.session_state[f"edit_{username}"] = True
+                
+                with col3:
+                    if st.button("Delete", key=f"delete_btn_{username}"):
+                        st.session_state[f"confirm_delete_{username}"] = True
+
+# ============================================================================
 # MAIN APPLICATION
 # ============================================================================
 
@@ -1498,56 +1904,105 @@ def main():
     else:
         # Show appropriate interface based on role
         user_info = st.session_state.user_info
+        role = user_info["role"]
         
-        # Sidebar
-        with st.sidebar:
-            st.markdown(f"### Welcome, {user_info['name']}!")
-            st.markdown(f"**Role:** {user_info['role'].replace('_', ' ').title()}")
+        # Facebook-like 3-column layout
+        col_left, col_center, col_right = st.columns([1, 2, 1.2])
+        
+        # LEFT SIDEBAR: Navigation
+        with col_left:
+            st.markdown("### 🎓 EIA Voice")
+            st.markdown("---")
             
-            if st.button(" Logout", key=f"logout_btn_{user_info['username']}"):
-                st.session_state.authenticated = False
-                st.session_state.user_info = None
+            # Nav items
+            st.markdown(f"**{user_info['name']}**")
+            st.markdown(f"*{role.replace('_', ' ').title()}*")
+            st.markdown("---")
+            
+            if st.button("🏠 Home", key="nav_home", use_container_width=True):
+                st.session_state['current_view'] = 'home'
+                st.rerun()
+            
+            if st.button("🔔 Notifications", key="nav_notif", use_container_width=True):
+                st.session_state['current_view'] = 'notifications'
+                st.rerun()
+            
+            if st.button("⚙️ Settings", key="nav_settings", use_container_width=True):
+                st.session_state['current_view'] = 'settings'
+                st.rerun()
+            
+            if st.button("👥 About", key="nav_about", use_container_width=True):
+                st.session_state['current_view'] = 'about'
                 st.rerun()
             
             st.markdown("---")
-            st.markdown("###  Community Guidelines")
-            st.markdown("""
-            - Be respectful and constructive
-            - No bullying or harassment
-            - No profanity or offensive language
-            - Focus on solutions, not just problems
-            - Respect anonymity of others
-            
-            ---
-            
-            ### 🚩 About Message Flagging
-            
-            Messages may be **flagged** by the Super Admin if they:
-            - Contain abusive or offensive content
-            - Violate community guidelines
-            - Could harm or mislead others
-            
-            **Flagged messages:**
-            - Are marked with a red warning
-            - Show the reason for flagging
-            - Reveal sender identity to Super Admin
-            
-            Always communicate respectfully! 
-            """)
+            if st.button("🚪 Logout", key=f"logout_btn_{user_info['username']}", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.user_info = None
+                st.rerun()
         
-        # Main content based on role
-        role = user_info["role"]
+        # CENTER: Feed or specific view
+        with col_center:
+            current_view = st.session_state.get('current_view', 'home')
+            
+            if current_view == 'home':
+                if role == "student":
+                    student_feed(user_info)
+                elif role == "teacher":
+                    teacher_feed(user_info)
+                elif role == "senator":
+                    senator_feed(user_info)
+                elif role == "admin":
+                    admin_feed(user_info)
+                elif role == "super_admin":
+                    super_admin_feed(user_info)
+            
+            elif current_view == 'settings':
+                st.subheader("⚙️ Account Settings")
+                render_account_settings(user_info)
+            
+            elif current_view == 'about':
+                st.subheader("📖 Community Guidelines")
+                st.markdown("""
+                ### Guidelines
+                - Be respectful and constructive
+                - No bullying or harassment
+                - No profanity or offensive language
+                - Focus on solutions, not problems
+                - Respect anonymity of others
+                
+                ### 🚩 Message Flagging
+                Messages may be flagged by Super Admin if they:
+                - Contain abusive/offensive content
+                - Violate community guidelines
+                - Could harm or mislead others
+                """)
         
-        if role == "student":
-            student_interface(user_info)
-        elif role == "teacher":
-            teacher_interface(user_info)
-        elif role == "senator":
-            senator_interface(user_info)
-        elif role == "admin":
-            admin_interface(user_info)
-        elif role == "super_admin":
-            super_admin_interface(user_info)
+        # RIGHT SIDEBAR: Notifications & Info
+        with col_right:
+            st.markdown("### 🔔 Notifications")
+            try:
+                unread = get_unread_notifications_count(user_info['username'])
+            except Exception:
+                unread = 0
+            
+            st.metric("Unread", unread)
+            
+            notifs = load_notifications().get(user_info['username'], [])
+            if notifs:
+                for n in notifs[:5]:  # Show latest 5
+                    read_status = "✓" if n.get('read') else "●"
+                    st.markdown(f"""
+                    <div class="notification-item {'unread' if not n.get('read') else ''}">
+                    {read_status} {n.get('text')}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                if st.button("Mark all read", key=f"mark_read_{user_info['username']}", use_container_width=True):
+                    mark_all_notifications_read(user_info['username'])
+                    st.rerun()
+            else:
+                st.info("No notifications")
 
 if __name__ == "__main__":
     main()
