@@ -277,10 +277,7 @@ def create_message(sender_id, sender_role, content, recipient, is_anonymous=Fals
         "flag_reason": "",
         "reactions": {
             "👍": [],
-            "❤️": [],
-            "💡": [],
-            "👏": [],
-            "🤔": []
+            "👎": []
         }
     }
     
@@ -424,11 +421,14 @@ def add_reaction(message_id, user_id, emoji):
             if "reactions" not in msg:
                 msg["reactions"] = {
                     "👍": [],
-                    "❤️": [],
-                    "💡": [],
-                    "👏": [],
-                    "🤔": []
+                    "👎": []
                 }
+            
+            # Ensure both reaction types exist
+            if "👍" not in msg["reactions"]:
+                msg["reactions"]["👍"] = []
+            if "👎" not in msg["reactions"]:
+                msg["reactions"]["👎"] = []
             
             # Toggle reaction - remove if already present, add if not
             if user_id in msg["reactions"][emoji]:
@@ -460,9 +460,7 @@ def add_comment(message_id, user_id, username, content, user_role, is_anonymous=
                 "timestamp": datetime.now().isoformat(),
                 "reactions": {
                     "👍": [],
-                    "❤️": [],
-                    "😂": [],
-                    "😢": []
+                    "👎": []
                 }
             }
             msg["comments"].append(comment)
@@ -488,7 +486,7 @@ def delete_comment(message_id, comment_id, user_id, user_role):
     return False
 
 def add_comment_reaction(message_id, comment_id, user_id, emoji):
-    """Add reaction to a comment"""
+    """Add or remove reaction to a comment"""
     messages_data = load_json(MESSAGES_FILE)
     for msg in messages_data["messages"]:
         if msg["id"] == message_id:
@@ -497,7 +495,14 @@ def add_comment_reaction(message_id, comment_id, user_id, emoji):
             for comment in msg["comments"]:
                 if comment["id"] == comment_id:
                     if "reactions" not in comment:
-                        comment["reactions"] = {"👍": [], "❤️": [], "😂": [], "😢": []}
+                        comment["reactions"] = {"👍": [], "👎": []}
+                    
+                    # Ensure both reactions exist
+                    if "👍" not in comment["reactions"]:
+                        comment["reactions"]["👍"] = []
+                    if "👎" not in comment["reactions"]:
+                        comment["reactions"]["👎"] = []
+                    
                     if user_id in comment["reactions"][emoji]:
                         comment["reactions"][emoji].remove(user_id)
                     else:
@@ -760,24 +765,46 @@ def render_comments(message, user_id, user_name, user_role):
                 st.markdown(safe_comment, unsafe_allow_html=True)
                 st.caption(comment_time)
                 
-                # Comment reactions
-                reactions = comment.get("reactions", {"👍": [], "❤️": [], "😂": [], "😢": []})
-                reaction_cols = st.columns(4)
+                # Comment reactions (like/dislike only)
+                reactions = comment.get("reactions", {"👍": [], "👎": []})
                 
-                for r_idx, (emoji, users) in enumerate(reactions.items()):
-                    with reaction_cols[r_idx]:
-                        count = len(users)
-                        has_reacted = user_id in users
-                        button_type = "primary" if has_reacted else "secondary"
-                        
-                        if st.button(
-                            f"{emoji} {count}",
-                            key=f"comment_react_{message_id}_{comment['id']}_{emoji}",
-                            type=button_type,
-                            use_container_width=True
-                        ):
-                            add_comment_reaction(message_id, comment["id"], user_id, emoji)
-                            st.rerun()
+                # Ensure both reactions exist
+                if "👍" not in reactions:
+                    reactions["👍"] = []
+                if "👎" not in reactions:
+                    reactions["👎"] = []
+                
+                reaction_cols = st.columns(3)
+                
+                with reaction_cols[0]:
+                    like_count = len(reactions.get("👍", []))
+                    st.caption(f"👍 {like_count}")
+                
+                with reaction_cols[1]:
+                    user_liked = user_id in reactions.get("👍", [])
+                    like_type = "primary" if user_liked else "secondary"
+                    
+                    if st.button(
+                        f"{'👍 Unlike' if user_liked else '👍 Like'}",
+                        key=f"comment_like_{message_id}_{comment['id']}",
+                        type=like_type,
+                        use_container_width=True
+                    ):
+                        add_comment_reaction(message_id, comment["id"], user_id, "👍")
+                        st.rerun()
+                
+                with reaction_cols[2]:
+                    user_disliked = user_id in reactions.get("👎", [])
+                    dislike_type = "primary" if user_disliked else "secondary"
+                    
+                    if st.button(
+                        f"{'👎 Undo' if user_disliked else '👎 Dislike'}",
+                        key=f"comment_dislike_{message_id}_{comment['id']}",
+                        type=dislike_type,
+                        use_container_width=True
+                    ):
+                        add_comment_reaction(message_id, comment["id"], user_id, "👎")
+                        st.rerun()
                 
                 st.divider()
     else:
@@ -849,38 +876,55 @@ def render_message_card(message, show_sender_id=False, user_id=None, show_reacti
                     else:
                         st.error("❌ Could not delete message")
     
-    # Add reactions section
+    # Like/Dislike and Comments count (Facebook style)
     if show_reactions and user_id:
-        reactions = message.get("reactions", {
-            "👍": [],
-            "❤️": [],
-            "💡": [],
-            "👏": [],
-            "🤔": []
-        })
+        reactions = message.get("reactions", {"👍": [], "👎": []})
+        like_count = len(reactions.get("👍", []))
+        dislike_count = len(reactions.get("👎", []))
+        comment_count = len(message.get("comments", []))
         
-        st.markdown("#### React to this message:")
-        cols = st.columns(5)
+        # Show counts
+        col_counts1, col_counts2 = st.columns(2)
+        with col_counts1:
+            st.caption(f"👍 {like_count} likes")
+        with col_counts2:
+            st.caption(f"💬 {comment_count} comments")
         
-        for idx, (emoji, users) in enumerate(reactions.items()):
-            with cols[idx]:
-                count = len(users)
-                has_reacted = user_id in users
-                button_type = "primary" if has_reacted else "secondary"
-                
-                react_key = f"react_msg_{message['id']}_{emoji}_{context}"
-                if st.button(
-                    f"{emoji} {count}",
-                    key=react_key,
-                    type=button_type,
-                    use_container_width=True
-                ):
-                    add_reaction(message['id'], user_id, emoji)
-                    st.rerun()
+        st.markdown("---")
+        
+        # Like/Dislike buttons
+        col_like, col_dislike = st.columns(2)
+        
+        with col_like:
+            user_liked = user_id in reactions.get("👍", [])
+            like_type = "primary" if user_liked else "secondary"
+            
+            if st.button(
+                f"👍 {'Unlike' if user_liked else 'Like'}",
+                key=f"like_msg_{message['id']}_{context}",
+                type=like_type,
+                use_container_width=True
+            ):
+                add_reaction(message['id'], user_id, "👍")
+                st.rerun()
+        
+        with col_dislike:
+            user_disliked = user_id in reactions.get("👎", [])
+            dislike_type = "primary" if user_disliked else "secondary"
+            
+            if st.button(
+                f"👎 {'Undo' if user_disliked else 'Dislike'}",
+                key=f"dislike_msg_{message['id']}_{context}",
+                type=dislike_type,
+                use_container_width=True
+            ):
+                add_reaction(message['id'], user_id, "👎")
+                st.rerun()
     
-    # Add comments section
+    # Add collapsible comments section
     if enable_comments and user_id and user_info:
-        render_comments(message, user_id, user_info.get("name", user_info["username"]), user_role)
+        with st.expander(f"💬 Comments ({len(message.get('comments', []))})", expanded=False):
+            render_comments(message, user_id, user_info.get("name", user_info["username"]), user_role)
 # ============================================================================
 # ROLE-SPECIFIC INTERFACES
 # ============================================================================
@@ -1587,7 +1631,7 @@ def super_admin_interface(user_info):
 # ACCOUNT SETTINGS & FEED RENDERING
 # ============================================================================
 
-def render_account_settings(user_info):
+def render_account_settings(user_info, role=None):
     """Render account settings"""
     st.markdown("#### Change Password")
     st.info("Keep your password secure and change it regularly")
@@ -1609,6 +1653,44 @@ def render_account_settings(user_info):
                 st.success("Password changed successfully!")
             else:
                 st.error("Failed to change password")
+    
+    # Anonymous name settings for students
+    if role == "student" or user_info.get("role") == "student":
+        st.markdown("---")
+        st.markdown("#### Your Anonymous Identity")
+        st.info("Customize how you appear when sending anonymous messages")
+        
+        anon_names = load_json(ANONYMOUS_NAMES_FILE)
+        current_anon_name = anon_names.get(user_info["username"], "Not set")
+        
+        st.markdown(f"**Current Anonymous Name:** `{current_anon_name}`")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            new_anon_name = st.text_input(
+                "Choose a New Anonymous Name (optional)",
+                placeholder="e.g., VoiceOfChange, ConcernedLearner",
+                max_chars=20,
+                key=f"anon_new_{user_info['username']}"
+            )
+            
+            if st.button("Update Anonymous Name", key=f"update_anon_{user_info['username']}", use_container_width=True):
+                if new_anon_name.strip():
+                    anon_names = load_json(ANONYMOUS_NAMES_FILE)
+                    anon_names[user_info["username"]] = new_anon_name.strip()[:20]
+                    save_json(ANONYMOUS_NAMES_FILE, anon_names)
+                    st.success(f"✅ Anonymous name updated to: {new_anon_name.strip()}")
+                    st.rerun()
+                else:
+                    st.error("Please enter a name")
+        
+        with col2:
+            st.write("")
+            if st.button("🔄 Reset to Auto-Generated Name", key=f"reset_anon_{user_info['username']}", use_container_width=True):
+                new_name = reset_anonymous_name(user_info["username"])
+                st.success(f"✅ Reset to: {new_name}")
+                st.rerun()
 
 def render_post_composer(user_info, role):
     """Render the post composer box"""
@@ -1976,7 +2058,7 @@ def main():
         
         elif current_view == 'settings':
             st.subheader("⚙️ Account Settings")
-            render_account_settings(user_info)
+            render_account_settings(user_info, role=role)
         
         elif current_view == 'about':
             st.subheader("📖 Community Guidelines")
