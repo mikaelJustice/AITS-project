@@ -1984,11 +1984,11 @@ def main():
         # Top-bar icon styles: outline, dark stroke, larger for visibility
         st.markdown("""
         <style>
-        .topbar-icon { width: 28px; height: 28px; fill: none; stroke: #111; stroke-width: 1.5; }
-        .topbar-icon-solid { width: 28px; height: 28px; fill: #111; stroke: none; }
-        .icon-container { position: relative; display:inline-block; text-align:center; }
-        .notif-badge { position: absolute; top: -6px; right: -6px; background: #111; color: #fff; border-radius: 50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; }
-        .stButton>button { padding: 0.35rem 0.45rem !important; }
+        .topbar-icon { width: 34px; height: 34px; fill: none; stroke: #111; stroke-width: 1.6; display:block; margin:0 auto; position:relative; top:-6px; z-index:2 }
+        .topbar-icon-solid { width: 34px; height: 34px; fill: #111; stroke: none; }
+        .icon-container { position: relative; display:inline-block; text-align:center; width:56px; }
+        .notif-badge { position: absolute; top: -8px; right: -8px; background: #111; color: #fff; border-radius: 50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; z-index:3 }
+        .stButton>button { min-width:56px; min-height:56px; padding:0.15rem 0.15rem !important; }
         </style>
         """, unsafe_allow_html=True)
 
