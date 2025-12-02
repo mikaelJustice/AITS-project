@@ -151,6 +151,8 @@ USERS_FILE = DATA_DIR / "users.json"
 MESSAGES_FILE = DATA_DIR / "messages.json"
 ANONYMOUS_NAMES_FILE = DATA_DIR / "anonymous_names.json"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
+BACKUP_DIR = DATA_DIR / "backups"
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_json(filepath):
     """Load JSON data from file"""
@@ -184,6 +186,43 @@ def save_json(filepath, data):
         pass
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=2)
+    # Create a timestamped backup for important files so we can restore later
+    try:
+        if filepath in (USERS_FILE, MESSAGES_FILE, ANONYMOUS_NAMES_FILE, NOTIFICATIONS_FILE):
+            ts = datetime.utcnow().isoformat().replace(':', '-')
+            backup_path = BACKUP_DIR / f"{filepath.name}.{ts}.bak.json"
+            with open(backup_path, 'w') as bf:
+                json.dump(data, bf, indent=2)
+    except Exception:
+        # Non-fatal: don't block saving if backup fails
+        pass
+
+
+def _latest_backup_for(filepath):
+    """Return path to the latest backup file for given filepath, or None."""
+    try:
+        files = [p for p in BACKUP_DIR.iterdir() if p.name.startswith(filepath.name + '.') and p.name.endswith('.bak.json')]
+        if not files:
+            return None
+        files.sort(key=lambda p: p.stat().st_mtime)
+        return files[-1]
+    except Exception:
+        return None
+
+
+def _restore_from_latest_backup(filepath):
+    """Restore filepath by copying the latest backup if available."""
+    latest = _latest_backup_for(filepath)
+    if not latest:
+        return False
+    try:
+        with open(latest, 'r') as bf:
+            data = json.load(bf)
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception:
+        return False
 
 def hash_password(password):
     """Hash password for secure storage"""
@@ -214,6 +253,20 @@ def initialize_data():
     
     if not NOTIFICATIONS_FILE.exists():
         save_json(NOTIFICATIONS_FILE, {})
+
+    # Attempt to restore from backups if any file looks empty/corrupt
+    # This helps recover the database if the app restarted after long inactivity
+    for p, default in [(USERS_FILE, {}), (MESSAGES_FILE, {"messages": []}), (ANONYMOUS_NAMES_FILE, {}), (NOTIFICATIONS_FILE, {})]:
+        try:
+            # If file exists but load_json returned default (likely empty or corrupt), try restoring
+            loaded = load_json(p)
+            if (loaded == default) or (p.exists() and p.stat().st_size == 0):
+                restored = _restore_from_latest_backup(p)
+                if restored:
+                    st.info(f"Restored {p.name} from latest backup.")
+        except Exception:
+            # ignore restore failures
+            pass
 
 # Initialize data
 initialize_data()
