@@ -729,25 +729,15 @@ def render_comments(message, user_id, user_name, user_role):
                     }
                     role_emoji = role_badges.get(comment["role"], "👤")
                     
-                    st.markdown(
-                        f"**{role_emoji} {comment_display}** "
-                        f"({'Anonymous' if comment['is_anonymous'] else 'Verified'})"
-                    )
-                
-                # Delete button
-                is_comment_owner = comment["user_id"] == user_id
-                is_super_admin = user_role == "super_admin"
-                
-                if is_comment_owner or is_super_admin:
-                    with col3:
-                        if st.button(
-                            "🗑️",
-                            key=f"del_comment_{message_id}_{comment['id']}",
-                            help="Delete comment"
-                        ):
-                            if delete_comment(message_id, comment["id"], user_id, user_role):
-                                st.success("Comment deleted")
-                                st.rerun()
+                    # (removed misplaced top-bar CSS here)
+                    if st.button(
+                        "🗑️",
+                        key=f"del_comment_{message_id}_{comment['id']}",
+                        help="Delete comment"
+                    ):
+                        if delete_comment(message_id, comment["id"], user_id, user_role):
+                            st.success("Comment deleted")
+                            st.rerun()
                 
                 # Comment content and time
                 comment_time = datetime.fromisoformat(comment["timestamp"]).strftime("%b %d, %I:%M %p")
@@ -1991,43 +1981,47 @@ def main():
         st.markdown("---")
         top_col1, top_col2, top_col3, top_col4, top_col5, top_col6 = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1])
 
-        # Inline SVG icon style helper
+        # Top-bar icon styles: outline, dark stroke, larger for visibility
         st.markdown("""
         <style>
-        .icon-inline { display: inline-flex; align-items: center; gap: 8px; }
-        .icon-inline svg { width: 18px; height: 18px; fill: none; stroke: #333; stroke-width: 1.5; }
-        .icon-badge { display:inline-block; border-radius:50%; padding:2px 6px; font-size:12px; background:#f44336; color:white; margin-left:6px; }
+        .topbar-icon { width: 28px; height: 28px; fill: none; stroke: #111; stroke-width: 1.5; }
+        .topbar-icon-solid { width: 28px; height: 28px; fill: #111; stroke: none; }
+        .icon-container { position: relative; display:inline-block; text-align:center; }
+        .notif-badge { position: absolute; top: -6px; right: -6px; background: #111; color: #fff; border-radius: 50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; }
+        .stButton>button { padding: 0.35rem 0.45rem !important; }
         </style>
         """, unsafe_allow_html=True)
 
         with top_col1:
-            if st.button("Home", key="nav_home", use_container_width=True, help="Home"):
+            if st.button("", key="nav_home", use_container_width=False, help="Home"):
                 st.session_state['current_view'] = 'home'
                 st.rerun()
-            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M3 11.5L12 4l9 7.5V20a1 1 0 0 1-1 1h-4v-6H8v6H4a1 1 0 0 1-1-1v-8.5z"/></svg>', unsafe_allow_html=True)
+            st.markdown('<div class="icon-container"><svg class="topbar-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 11.5L12 4l9 7.5V20a1 1 0 0 1-1 1h-4v-6H8v6H4a1 1 0 0 1-1-1v-8.5z"/></svg></div>', unsafe_allow_html=True)
 
         with top_col2:
             try:
                 unread = get_unread_notifications_count(user_info['username'])
             except Exception:
                 unread = 0
-            notif_label = f"Notifications {unread}" if unread > 0 else "Notifications"
-            if st.button(notif_label, key="nav_notif", use_container_width=True, help="Notifications"):
+            if st.button("", key="nav_notif", use_container_width=False, help="Notifications"):
                 st.session_state['current_view'] = 'notifications'
                 st.rerun()
-            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18.5 14.5V11a6.5 6.5 0 1 0-13 0v3.5c0 .538-.214 1.055-.595 1.455L3 17h5m4 0v1a2 2 0 1 1-4 0v-1"/></svg>', unsafe_allow_html=True)
+            if unread > 0:
+                st.markdown(f'<div class="icon-container"><svg class="topbar-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18.5 14.5V11a6.5 6.5 0 1 0-13 0v3.5c0 .538-.214 1.055-.595 1.455L3 17h5m4 0v1a2 2 0 1 1-4 0v-1"/></svg><span class="notif-badge">{unread}</span></div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="icon-container"><svg class="topbar-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18.5 14.5V11a6.5 6.5 0 1 0-13 0v3.5c0 .538-.214 1.055-.595 1.455L3 17h5m4 0v1a2 2 0 1 1-4 0v-1"/></svg></div>', unsafe_allow_html=True)
 
         with top_col3:
-            if st.button("Settings", key="nav_settings", use_container_width=True, help="Settings"):
+            if st.button("", key="nav_settings", use_container_width=False, help="Settings"):
                 st.session_state['current_view'] = 'settings'
                 st.rerun()
-            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a7.953 7.953 0 0 0 .6-3 7.953 7.953 0 0 0-.6-3l2.1-1.6-2-3.4-2.6 1a8.1 8.1 0 0 0-2.6-1.5L13 1h-2l-.9 2.5a8.1 8.1 0 0 0-2.6 1.5l-2.6-1-2 3.4L4 9a7.953 7.953 0 0 0-.6 3c0 1.02.14 2 .4 3l-2.1 1.6 2 3.4 2.6-1a8.1 8.1 0 0 0 2.6 1.5L11 23h2l.9-2.5a8.1 8.1 0 0 0 2.6-1.5l2.6 1 2-3.4L19.4 15z"/></svg>', unsafe_allow_html=True)
+            st.markdown('<div class="icon-container"><svg class="topbar-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a7.953 7.953 0 0 0 .6-3 7.953 7.953 0 0 0-.6-3l2.1-1.6-2-3.4-2.6 1a8.1 8.1 0 0 0-2.6-1.5L13 1h-2l-.9 2.5a8.1 8.1 0 0 0-2.6 1.5l-2.6-1-2 3.4L4 9a7.953 7.953 0 0 0-.6 3c0 1.02.14 2 .4 3l-2.1 1.6 2 3.4 2.6-1a8.1 8.1 0 0 0 2.6 1.5L11 23h2l.9-2.5a8.1 8.1 0 0 0 2.6-1.5l2.6 1 2-3.4L19.4 15z"/></svg></div>', unsafe_allow_html=True)
 
         with top_col4:
-            if st.button("About", key="nav_about", use_container_width=True, help="About"):
+            if st.button("", key="nav_about", use_container_width=False, help="About"):
                 st.session_state['current_view'] = 'about'
                 st.rerun()
-            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM2 20a10 10 0 0 1 20 0v2H2v-2z"/></svg>', unsafe_allow_html=True)
+            st.markdown('<div class="icon-container"><svg class="topbar-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM2 20a10 10 0 0 1 20 0v2H2v-2z"/></svg></div>', unsafe_allow_html=True)
 
         with top_col5:
             st.markdown(f"**{user_info['name']}**")
@@ -2037,9 +2031,9 @@ def main():
                 st.session_state.authenticated = False
                 st.session_state.user_info = None
                 st.rerun()
-        
+
         st.markdown("---")
-        
+
         # MAIN CONTENT AREA
         current_view = st.session_state.get('current_view', 'home')
         
