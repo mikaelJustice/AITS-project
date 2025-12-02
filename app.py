@@ -1986,11 +1986,41 @@ def main():
         # Top-bar icon styles: outline, dark stroke, larger for visibility
         st.markdown("""
         <style>
-        .topbar-icon { width: 34px; height: 34px; fill: none; stroke: #111; stroke-width: 1.6; display:block; margin:0 auto; position:relative; top:-6px; z-index:2 }
-        .topbar-icon-solid { width: 34px; height: 34px; fill: #111; stroke: none; }
-        .icon-container { position: relative; display:inline-block; text-align:center; width:56px; }
-        .notif-badge { position: absolute; top: -8px; right: -8px; background: #111; color: #fff; border-radius: 50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; z-index:3 }
-        .stButton>button { min-width:56px; min-height:56px; padding:0.15rem 0.15rem !important; }
+        .topbar-icon { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.6; display:block; margin:0 auto; position:relative; top:-6px; z-index:2 }
+        .topbar-icon-solid { width: 34px; height: 34px; fill: currentColor; stroke: none; }
+        .icon-container { position: relative; display:flex; align-items:center; justify-content:center; text-align:center; width:64px; height:56px; }
+        .notif-badge { position: absolute; top: -8px; right: -8px; background: currentColor; color: var(--notif-text, #fff); border-radius: 50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; z-index:3 }
+
+        /* Base button sizing */
+        .stButton>button { min-width:56px; min-height:56px; padding:0.15rem 0.15rem !important; border-radius:8px; }
+
+        /* Improve button text visibility: larger, bolder, clear contrast */
+        .topbar-wrapper .stButton>button {
+            font-size: 16px !important;
+            font-weight: 700 !important;
+            color: currentColor !important;
+            background: transparent !important;
+            border: 1px solid rgba(0,0,0,0.06) !important;
+            box-shadow: none !important;
+        }
+        .topbar-wrapper .stButton>button:hover {
+            background: rgba(0,0,0,0.04) !important;
+        }
+        .topbar-wrapper .stButton>button:focus {
+            outline: 2px solid rgba(0,0,0,0.08) !important;
+        }
+
+        /* Light theme defaults */
+        .topbar-wrapper { color: #111; }
+        .notif-badge { --notif-text: #fff; }
+
+        /* Dark theme: make buttons and badge invert for visibility */
+        @media (prefers-color-scheme: dark) {
+            .topbar-wrapper { color: #fff; }
+            .topbar-wrapper .stButton>button { border: 1px solid rgba(255,255,255,0.06) !important; }
+            .topbar-wrapper .stButton>button:hover { background: rgba(255,255,255,0.04) !important; }
+            .notif-badge { background: #fff; color: #111; }
+        }
         </style>
         """, unsafe_allow_html=True)
 
