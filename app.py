@@ -2001,44 +2001,39 @@ def main():
         """, unsafe_allow_html=True)
 
         with top_col1:
-            st.markdown('<div class="icon-inline"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 11.5L12 4l9 7.5V20a1 1 0 0 1-1 1h-4v-6H8v6H4a1 1 0 0 1-1-1v-8.5z"/></svg><span>Home</span></div>', unsafe_allow_html=True)
-            if st.button("Home", key="nav_home", use_container_width=True):
+            if st.button("Home", key="nav_home", use_container_width=True, help="Home"):
                 st.session_state['current_view'] = 'home'
                 st.rerun()
+            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M3 11.5L12 4l9 7.5V20a1 1 0 0 1-1 1h-4v-6H8v6H4a1 1 0 0 1-1-1v-8.5z"/></svg>', unsafe_allow_html=True)
 
         with top_col2:
             try:
                 unread = get_unread_notifications_count(user_info['username'])
             except Exception:
                 unread = 0
-
-            # Decorative bell icon (outline)
-            if unread > 0:
-                st.markdown(f'<div class="icon-inline"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18.5 14.5V11a6.5 6.5 0 1 0-13 0v3.5c0 .538-.214 1.055-.595 1.455L3 17h5m4 0v1a2 2 0 1 1-4 0v-1"/></svg><span>Notifications</span><span class="icon-badge">{unread}</span></div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="icon-inline"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18.5 14.5V11a6.5 6.5 0 1 0-13 0v3.5c0 .538-.214 1.055-.595 1.455L3 17h5m4 0v1a2 2 0 1 1-4 0v-1"/></svg><span>Notifications</span></div>', unsafe_allow_html=True)
-            if st.button("Notifications", key="nav_notif", use_container_width=True):
+            notif_label = f"Notifications {unread}" if unread > 0 else "Notifications"
+            if st.button(notif_label, key="nav_notif", use_container_width=True, help="Notifications"):
                 st.session_state['current_view'] = 'notifications'
                 st.rerun()
+            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18.5 14.5V11a6.5 6.5 0 1 0-13 0v3.5c0 .538-.214 1.055-.595 1.455L3 17h5m4 0v1a2 2 0 1 1-4 0v-1"/></svg>', unsafe_allow_html=True)
 
         with top_col3:
-            st.markdown('<div class="icon-inline"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a7.953 7.953 0 0 0 .6-3 7.953 7.953 0 0 0-.6-3l2.1-1.6-2-3.4-2.6 1a8.1 8.1 0 0 0-2.6-1.5L13 1h-2l-.9 2.5a8.1 8.1 0 0 0-2.6 1.5l-2.6-1-2 3.4L4 9a7.953 7.953 0 0 0-.6 3c0 1.02.14 2 .4 3l-2.1 1.6 2 3.4 2.6-1a8.1 8.1 0 0 0 2.6 1.5L11 23h2l.9-2.5a8.1 8.1 0 0 0 2.6-1.5l2.6 1 2-3.4L19.4 15z"/></svg><span>Settings</span></div>', unsafe_allow_html=True)
-            if st.button("Settings", key="nav_settings", use_container_width=True):
+            if st.button("Settings", key="nav_settings", use_container_width=True, help="Settings"):
                 st.session_state['current_view'] = 'settings'
                 st.rerun()
+            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM19.4 15a7.953 7.953 0 0 0 .6-3 7.953 7.953 0 0 0-.6-3l2.1-1.6-2-3.4-2.6 1a8.1 8.1 0 0 0-2.6-1.5L13 1h-2l-.9 2.5a8.1 8.1 0 0 0-2.6 1.5l-2.6-1-2 3.4L4 9a7.953 7.953 0 0 0-.6 3c0 1.02.14 2 .4 3l-2.1 1.6 2 3.4 2.6-1a8.1 8.1 0 0 0 2.6 1.5L11 23h2l.9-2.5a8.1 8.1 0 0 0 2.6-1.5l2.6 1 2-3.4L19.4 15z"/></svg>', unsafe_allow_html=True)
 
         with top_col4:
-            st.markdown('<div class="icon-inline"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM2 20a10 10 0 0 1 20 0v2H2v-2z"/></svg><span>About</span></div>', unsafe_allow_html=True)
-            if st.button("About", key="nav_about", use_container_width=True):
+            if st.button("About", key="nav_about", use_container_width=True, help="About"):
                 st.session_state['current_view'] = 'about'
                 st.rerun()
+            st.markdown('<svg viewBox="0 0 24 24" width="20" height="20" style="margin-top:-35px;margin-left:10px;fill:none;stroke:#333;stroke-width:1.5"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM2 20a10 10 0 0 1 20 0v2H2v-2z"/></svg>', unsafe_allow_html=True)
 
         with top_col5:
             st.markdown(f"**{user_info['name']}**")
 
         with top_col6:
-            st.markdown('<div class="icon-inline"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 13v-2H7V7l-5 5 5 5v-4h9zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg><span>Logout</span></div>', unsafe_allow_html=True)
-            if st.button("Logout", key=f"logout_btn_{user_info['username']}", use_container_width=True):
+            if st.button("Log Out", key=f"logout_btn_{user_info['username']}", use_container_width=True):
                 st.session_state.authenticated = False
                 st.session_state.user_info = None
                 st.rerun()
