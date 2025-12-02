@@ -1979,6 +1979,8 @@ def main():
         
         # TOP BAR: Navigation and Notifications
         st.markdown("---")
+        # wrapper ensures icons use currentColor and dark-mode rules
+        st.markdown('<div class="topbar-wrapper">', unsafe_allow_html=True)
         top_col1, top_col2, top_col3, top_col4, top_col5, top_col6 = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1])
 
         # Top-bar icon styles: outline, dark stroke, larger for visibility
@@ -2032,6 +2034,8 @@ def main():
                 st.session_state.user_info = None
                 st.rerun()
 
+        # close wrapper
+        st.markdown('</div>', unsafe_allow_html=True)
         st.markdown("---")
 
         # MAIN CONTENT AREA
