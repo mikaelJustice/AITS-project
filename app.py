@@ -1983,49 +1983,38 @@ def main():
         st.markdown('<div class="topbar-wrapper">', unsafe_allow_html=True)
         top_col1, top_col2, top_col3, top_col4, top_col5, top_col6 = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1])
 
-        # Top-bar icon styles: outline, dark stroke, larger for visibility
+        # Top-bar styles: bold text buttons matching username display
         st.markdown("""
         <style>
-        .topbar-icon { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.6; display:block; margin:0 auto; position:relative; top:-6px; z-index:2 }
-        .topbar-icon-solid { width: 34px; height: 34px; fill: currentColor; stroke: none; }
-        .icon-container { position: relative; display:flex; align-items:center; justify-content:center; text-align:center; width:64px; height:56px; }
-        .notif-badge { position: absolute; top: -8px; right: -8px; background: currentColor; color: var(--notif-text, #fff); border-radius: 50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:12px; z-index:3 }
-
-        /* Base button sizing */
-        .stButton>button { min-width:56px; min-height:56px; padding:0.15rem 0.15rem !important; border-radius:8px; }
-
-        /* Improve button text visibility: larger, bolder, clear contrast */
-        .topbar-wrapper .stButton>button {
-            font-size: 16px !important;
-            font-weight: 700 !important;
-            color: currentColor !important;
-            background: transparent !important;
-            border: 1px solid rgba(0,0,0,0.06) !important;
-            box-shadow: none !important;
+        .topbar-nav-btn {
+            font-size: 16px;
+            font-weight: 700;
+            color: inherit;
+            background: none;
+            border: none;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            border-radius: 4px;
+            transition: background 0.2s;
         }
-        .topbar-wrapper .stButton>button:hover {
-            background: rgba(0,0,0,0.04) !important;
+        .topbar-nav-btn:hover {
+            background: rgba(0,0,0,0.05);
         }
-        .topbar-wrapper .stButton>button:focus {
-            outline: 2px solid rgba(0,0,0,0.08) !important;
+        .topbar-nav-btn:focus {
+            outline: 2px solid currentColor;
+            outline-offset: 2px;
         }
-
-        /* Light theme defaults */
-        .topbar-wrapper { color: #111; }
-        .notif-badge { --notif-text: #fff; }
-
-        /* Dark theme: make buttons and badge invert for visibility */
         @media (prefers-color-scheme: dark) {
-            .topbar-wrapper { color: #fff; }
-            .topbar-wrapper .stButton>button { border: 1px solid rgba(255,255,255,0.06) !important; }
-            .topbar-wrapper .stButton>button:hover { background: rgba(255,255,255,0.04) !important; }
-            .notif-badge { background: #fff; color: #111; }
+            .topbar-nav-btn:hover { background: rgba(255,255,255,0.05); }
         }
         </style>
         """, unsafe_allow_html=True)
 
         with top_col1:
-            if st.button("Home", key="nav_home", use_container_width=True):
+            st.markdown('**Home**', unsafe_allow_html=True)
+            if st.button("", key="nav_home", use_container_width=True, help="Go to Home"):
                 st.session_state['current_view'] = 'home'
                 st.rerun()
 
@@ -2034,18 +2023,21 @@ def main():
                 unread = get_unread_notifications_count(user_info['username'])
             except Exception:
                 unread = 0
-            notif_label = f"Notifications ({unread})" if unread > 0 else "Notifications"
-            if st.button(notif_label, key="nav_notif", use_container_width=True):
+            notif_label = f"**Notifications** ({unread})" if unread > 0 else "**Notifications**"
+            st.markdown(notif_label, unsafe_allow_html=True)
+            if st.button("", key="nav_notif", use_container_width=True, help="View Notifications"):
                 st.session_state['current_view'] = 'notifications'
                 st.rerun()
 
         with top_col3:
-            if st.button("Settings", key="nav_settings", use_container_width=True):
+            st.markdown('**Settings**', unsafe_allow_html=True)
+            if st.button("", key="nav_settings", use_container_width=True, help="Account Settings"):
                 st.session_state['current_view'] = 'settings'
                 st.rerun()
 
         with top_col4:
-            if st.button("About", key="nav_about", use_container_width=True):
+            st.markdown('**About**', unsafe_allow_html=True)
+            if st.button("", key="nav_about", use_container_width=True, help="Community Guidelines"):
                 st.session_state['current_view'] = 'about'
                 st.rerun()
 
@@ -2053,7 +2045,8 @@ def main():
             st.markdown(f"**{user_info['name']}**")
 
         with top_col6:
-            if st.button("Log Out", key=f"logout_btn_{user_info['username']}", use_container_width=True):
+            st.markdown('**Log Out**', unsafe_allow_html=True)
+            if st.button("", key=f"logout_btn_{user_info['username']}", use_container_width=True, help="Log Out"):
                 st.session_state.authenticated = False
                 st.session_state.user_info = None
                 st.rerun()
