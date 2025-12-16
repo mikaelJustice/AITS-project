@@ -1,6 +1,13 @@
-
 streamlit
 python-dateutil
 pytz
-requests  
+requests
 PyMuPDF
+
+# Additional packages for media handling, validation, and testing
+Pillow
+filetype
+moviepy  # optional: requires ffmpeg installed on the system for video processing
+SQLAlchemy  # optional: use if you want ORM + robust migrations
+alembic  # optional: database migrations
+pytest  # optional: tests
