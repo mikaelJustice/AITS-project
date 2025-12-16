@@ -271,9 +271,345 @@ def initialize_data():
 # Initialize data
 initialize_data()
 
-# ============================================================================
+# ---------------------------------------------------------------------------
+# DATABASE (SQLite) + FILE UPLOADS
+# ---------------------------------------------------------------------------
+import sqlite3
+
+DB_FILE = DATA_DIR / "app.db"
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30 MB
+
+
+def init_db():
+    """Initialize SQLite database and required tables."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Users table mirrors minimal info from users.json for compatibility
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT,
+            role TEXT,
+            name TEXT,
+            profile_photo TEXT,
+            bio TEXT,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS follows (
+            follower TEXT,
+            followee TEXT,
+            created_at TEXT,
+            PRIMARY KEY (follower, followee)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS posts (
+            id TEXT PRIMARY KEY,
+            author TEXT,
+            content TEXT,
+            visibility TEXT,
+            is_complaint INTEGER,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS media (
+            id TEXT PRIMARY KEY,
+            owner TEXT,
+            filename TEXT,
+            path TEXT,
+            mime TEXT,
+            size INTEGER,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id TEXT PRIMARY KEY,
+            user_a TEXT,
+            user_b TEXT,
+            anon_by_default INTEGER,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS messages_db (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT,
+            sender TEXT,
+            content TEXT,
+            is_anonymous INTEGER,
+            anon_name TEXT,
+            revealed INTEGER,
+            created_at TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# Initialize DB
+init_db()
+
+
+def _sanitize_filename(name: str) -> str:
+    """Remove potentially unsafe characters from a filename."""
+    keepchars = " .-_()"
+    return "".join(c for c in name if c.isalnum() or c in keepchars).strip()
+
+
+def save_media_file(uploaded_file):
+    """Save a Streamlit UploadedFile to the uploads folder enforcing size limits.
+
+    Returns a dict with metadata on success, raises ValueError on violation.
+    """
+    # Streamlit's UploadedFile supports .name and .getbuffer() or .read()
+    filename = getattr(uploaded_file, "name", "upload")
+    safe_name = _sanitize_filename(filename)[:200]
+
+    # Get size
+    try:
+        size = uploaded_file.size
+    except Exception:
+        # Fallback: read buffer to get size
+        buf = uploaded_file.read()
+        size = len(buf)
+        # reset pointer by recreating a BytesIO if necessary - Streamlit uploaded file is small
+
+    if size > MAX_UPLOAD_BYTES:
+        raise ValueError("File exceeds maximum allowed size of 30 MB")
+
+    # Save with unique name
+    unique = secrets.token_hex(8)
+    dest_name = f"{unique}_{safe_name}"
+    dest_path = UPLOAD_DIR / dest_name
+
+    # Write file
+    try:
+        with open(dest_path, "wb") as f:
+            # If uploaded_file support .getbuffer use that for efficiency
+            if hasattr(uploaded_file, "getbuffer"):
+                f.write(uploaded_file.getbuffer())
+            else:
+                f.write(uploaded_file.read())
+    except Exception as e:
+        raise
+
+    return {
+        "id": unique,
+        "filename": safe_name,
+        "path": str(dest_path),
+        "mime": getattr(uploaded_file, "type", "application/octet-stream"),
+        "size": size,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+
+def get_user_role(username):
+    users = load_json(USERS_FILE)
+    return users.get(username, {}).get("role")
+
+
+def _ensure_normalized_conversation(a, b):
+    """Return two usernames ordered so conversation is unique irrespective of order."""
+    return (a, b) if a <= b else (b, a)
+
+
+def create_or_get_conversation(user_a, user_b, anon_by_default=True):
+    """Create a conversation row between two users or return existing one."""
+    ua, ub = _ensure_normalized_conversation(user_a, user_b)
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # look for existing
+    c.execute("SELECT id, anon_by_default FROM conversations WHERE user_a=? AND user_b=?", (ua, ub))
+    row = c.fetchone()
+    if row:
+        conv_id, anon_flag = row
+        conn.close()
+        return conv_id, bool(anon_flag)
+
+    conv_id = secrets.token_hex(8)
+    c.execute("INSERT INTO conversations (id, user_a, user_b, anon_by_default, created_at) VALUES (?, ?, ?, ?, ?)",
+              (conv_id, ua, ub, 1 if anon_by_default else 0, datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+    return conv_id, anon_by_default
+
+
+def send_db_message(conversation_id, sender, content, is_anonymous=None, anon_name=None, revealed=False):
+    """Send a message in a conversation honoring the conversation's default anonymity.
+
+    If is_anonymous is None, we use the convo's anon_by_default flag.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # get conv
+    c.execute("SELECT anon_by_default, user_a, user_b FROM conversations WHERE id=?", (conversation_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("Conversation not found")
+    anon_default, user_a, user_b = row
+
+    # Determine roles: if both students and no explicit flag, default to anonymous True
+    if is_anonymous is None:
+        # If both users are students, apply default True; else use anon_default
+        other = user_a if sender != user_a else user_b
+        sender_role = get_user_role(sender)
+        other_role = get_user_role(other)
+        if sender_role == "student" and other_role == "student":
+            effective_anonymous = True
+        else:
+            effective_anonymous = bool(anon_default)
+    else:
+        effective_anonymous = bool(is_anonymous)
+
+    msg_id = secrets.token_hex(8)
+    c.execute("INSERT INTO messages_db (id, conversation_id, sender, content, is_anonymous, anon_name, revealed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              (msg_id, conversation_id, sender, content, 1 if effective_anonymous else 0, anon_name if effective_anonymous else None, 1 if revealed else 0, datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+    return msg_id
+
+
+# -------------------------
+# User & Follow helpers
+# -------------------------
+
+def sync_user_to_db(username):
+    """Ensure a user exists in the SQLite users table mirroring users.json"""
+    users = load_json(USERS_FILE)
+    if username not in users:
+        return False
+    info = users[username]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE username=?", (username,))
+    if c.fetchone():
+        # update
+        c.execute("UPDATE users SET password=?, role=?, name=?, profile_photo=?, bio=?, created_at=? WHERE username=?",
+                  (info.get('password'), info.get('role'), info.get('name'), info.get('profile_photo', None), info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat()), username))
+    else:
+        c.execute("INSERT INTO users (username, password, role, name, profile_photo, bio, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                  (username, info.get('password'), info.get('role'), info.get('name'), info.get('profile_photo', None), info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat())))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def follow_user(follower, followee):
+    if follower == followee:
+        return False
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("INSERT OR IGNORE INTO follows (follower, followee, created_at) VALUES (?, ?, ?)",
+                  (follower, followee, datetime.utcnow().isoformat()))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def unfollow_user(follower, followee):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM follows WHERE follower=? AND followee=?", (follower, followee))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def is_following(follower, followee):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM follows WHERE follower=? AND followee=?", (follower, followee))
+    res = c.fetchone() is not None
+    conn.close()
+    return res
+
+
+def get_followers_count(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM follows WHERE followee=?", (username,))
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+
+def get_following_count(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM follows WHERE follower=?", (username,))
+    n = c.fetchone()[0]
+    conn.close()
+    return n
+
+
+def get_user_profile(username):
+    """Return profile dict merging users.json and sqlite stored photo/bio if available"""
+    users = load_json(USERS_FILE)
+    info = users.get(username, {})
+    # ensure in sqlite
+    try:
+        sync_user_to_db(username)
+    except Exception:
+        pass
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT profile_photo, bio FROM users WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        profile_photo, bio = row
+        if profile_photo:
+            info['profile_photo'] = profile_photo
+        if bio:
+            info['bio'] = bio
+    return info
+
+
+def update_profile(username, new_name=None, new_bio=None, profile_photo_meta=None):
+    """Update profile info in both users.json and sqlite"""
+    users = load_json(USERS_FILE)
+    if username not in users:
+        return False
+    if new_name is not None:
+        users[username]['name'] = new_name
+    if new_bio is not None:
+        users[username]['bio'] = new_bio
+    if profile_photo_meta is not None:
+        users[username]['profile_photo'] = profile_photo_meta
+    save_json(USERS_FILE, users)
+    # sync into sqlite
+    sync_user_to_db(username)
+    # also store photo in sqlite directly
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE users SET name=?, profile_photo=?, bio=? WHERE username=?",
+              (users[username].get('name'), users[username].get('profile_photo'), users[username].get('bio'), username))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ---------------------------------------------------------------------------
 # AUTHENTICATION
-# ============================================================================
+# ---------------------------------------------------------------------------
 
 def authenticate(username, password):
     """Authenticate user"""
@@ -1734,6 +2070,85 @@ def render_account_settings(user_info, role=None):
                 st.success(f"✅ Reset to: {new_name}")
                 st.rerun()
 
+def render_profile(viewer_info, viewed_username):
+    """Render a user's profile with follow/unfollow and edit options"""
+    profile = get_user_profile(viewed_username)
+    st.markdown(f"### {profile.get('name', viewed_username)} (@{viewed_username})")
+
+    # Profile photo
+    photo = profile.get('profile_photo')
+    if photo:
+        # support dict or string path
+        img_path = photo.get('path') if isinstance(photo, dict) else photo
+        try:
+            st.image(img_path, width=150)
+        except Exception:
+            st.markdown("(Profile image not found)")
+    else:
+        st.markdown("_(No profile photo)_")
+
+    # Bio
+    bio = profile.get('bio', '')
+    if bio:
+        st.markdown(f"**Bio:** {bio}")
+    else:
+        st.markdown("_(No bio)_")
+
+    # Follow counts
+    followers = get_followers_count(viewed_username)
+    following = get_following_count(viewed_username)
+    st.markdown(f"**Followers:** {followers} • **Following:** {following}")
+
+    # If viewing someone else, show follow/unfollow and message
+    viewer = viewer_info['username']
+    if viewer != viewed_username:
+        if is_following(viewer, viewed_username):
+            if st.button("Unfollow", key=f"unfollow_{viewer}_{viewed_username}"):
+                unfollow_user(viewer, viewed_username)
+                st.success("Unfollowed")
+                st.rerun()
+        else:
+            if st.button("Follow", key=f"follow_{viewer}_{viewed_username}"):
+                follow_user(viewer, viewed_username)
+                st.success("Now following")
+                st.rerun()
+
+        if st.button("Start Conversation", key=f"start_conv_{viewer}_{viewed_username}"):
+            conv_id, anon_default = create_or_get_conversation(viewer, viewed_username, anon_by_default=True)
+            st.success("Conversation opened")
+            # store current conversation in session state
+            st.session_state['open_conversation'] = conv_id
+            # optionally navigate to messages view (to be implemented)
+    else:
+        # Editing own profile
+        st.markdown("---")
+        st.markdown("#### Edit Profile")
+        col1, col2 = st.columns([2,1])
+        with col1:
+            new_name = st.text_input("Display Name", value=profile.get('name', viewer), key=f"edit_name_{viewer}")
+            new_bio = st.text_area("Bio", value=profile.get('bio', ''), key=f"edit_bio_{viewer}")
+            photo_file = st.file_uploader("Upload Profile Photo (max 30 MB)", type=None, key=f"profile_photo_{viewer}")
+            if st.button("Save Profile", key=f"save_profile_{viewer}"):
+                photo_meta = None
+                if photo_file is not None:
+                    try:
+                        photo_meta = save_media_file(photo_file)
+                    except ValueError as e:
+                        st.error(str(e))
+                        return
+                if update_profile(viewer, new_name, new_bio, profile_photo_meta=(photo_meta if photo_meta else profile.get('profile_photo'))):
+                    st.success("Profile updated")
+                    st.rerun()
+                else:
+                    st.error("Failed to update profile")
+        with col2:
+            st.markdown("#### Manage"")
+            if st.button("Reset Anonymous Name", key=f"reset_anon_profile_{viewer}"):
+                new_name = reset_anonymous_name(viewer)
+                st.success(f"Anonymous name reset to {new_name}")
+                st.rerun()
+
+
 def render_post_composer(user_info, role):
     """Render the post composer box"""
     st.markdown('<div class="post-composer">', unsafe_allow_html=True)
@@ -1960,6 +2375,11 @@ def super_admin_feed(user_info):
                             "name": new_name
                         }
                         save_json(USERS_FILE, users)
+                        # ensure SQLite has same user
+                        try:
+                            sync_user_to_db(new_username)
+                        except Exception:
+                            pass
                         st.success(f"User {new_username} created!")
                     else:
                         st.error("Username exists")
@@ -2095,7 +2515,11 @@ def main():
                 st.rerun()
 
         with top_col5:
-            st.markdown(f"**{user_info['name']}**")
+            st.markdown('**Profile**', unsafe_allow_html=True)
+            if st.button(user_info['name'], key='nav_profile', use_container_width=True, help='View Profile'):
+                st.session_state['current_view'] = 'profile'
+                st.session_state['profile_view_user'] = user_info['username']
+                st.rerun()
 
         with top_col6:
             st.markdown('**Log Out**', unsafe_allow_html=True)
@@ -2144,6 +2568,11 @@ def main():
             - Could harm or mislead others
             """)
         
+        elif current_view == 'profile':
+            st.subheader("👤 Profile")
+            viewed_username = st.session_state.get('profile_view_user', user_info['username'])
+            render_profile(user_info, viewed_username)
+
         elif current_view == 'notifications':
             st.subheader("🔔 All Notifications")
             try:
