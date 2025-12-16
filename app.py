@@ -2142,7 +2142,7 @@ def render_profile(viewer_info, viewed_username):
                 else:
                     st.error("Failed to update profile")
         with col2:
-            st.markdown("#### Manage"")
+            st.markdown("#### Manage")
             if st.button("Reset Anonymous Name", key=f"reset_anon_profile_{viewer}"):
                 new_name = reset_anonymous_name(viewer)
                 st.success(f"Anonymous name reset to {new_name}")
