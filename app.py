@@ -2600,21 +2600,12 @@ def render_conversation_view(conv_id, viewer_info):
         is_anon = m.get('is_anonymous')
         anon_name_val = m.get('anon_name')
         content = escape(m.get('content',''))
-        ts = m.get('created_at', '')
 
-        # Determine display name and side
-        if sender == viewer:
-            side = 'msg-right'
-        else:
-            side = 'msg-left'
+        # Determine side only (we intentionally DO NOT show sender name or timestamp)
+        side = 'msg-right' if sender == viewer else 'msg-left'
 
-        if is_anon:
-            sender_display = anon_name_val or get_or_create_anonymous_name(sender)
-        else:
-            sender_display = load_json(USERS_FILE).get(sender, {}).get('name', sender) if has_revealed_to(sender, viewer) else (anon_name_val or get_or_create_anonymous_name(sender))
-
-        # Render bubble
-        st.markdown(f"<div class='msg-row {side}'><div class='msg-bubble'><strong>{escape(sender_display)}</strong><div style='margin-top:6px'>{content}</div><div class='msg-meta'>{ts}</div></div></div>", unsafe_allow_html=True)
+        # Render bubble with message content only (privacy-first, minimal UI)
+        st.markdown(f"<div class='msg-row {side}'><div class='msg-bubble'>{content}</div></div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
@@ -2622,22 +2613,24 @@ def render_conversation_view(conv_id, viewer_info):
     key_in = f"conv_input_{conv_id}_{viewer}"
     col_in1, col_in2 = st.columns([9,1])
     with col_in1:
-        st.text_input("", key=key_in, placeholder="Type a message...")
+        # Provide a non-empty label and hide it for accessibility
+        st.text_input("Message", key=key_in, placeholder="Type a message...", label_visibility="collapsed")
     with col_in2:
-        if st.button("Send", key=f"send_conv_{conv_id}_{viewer}"):
-            content = st.session_state.get(key_in, "").strip()
-            if not content:
-                st.error("Please enter a message")
-            else:
-                # default to conversation anon_by_default
-                anon_flag = bool(anon_default)
-                anon_name = get_or_create_anonymous_name(viewer) if anon_flag else None
-                try:
-                    send_db_message(conv_id, viewer, content, is_anonymous=anon_flag, anon_name=anon_name)
-                    st.session_state[key_in] = ""
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Failed to send message: {e}")
+                if st.button("Send", key=f"send_conv_{conv_id}_{viewer}"):
+                    content = st.session_state.get(key_in, "").strip()
+                    if not content:
+                        st.error("Please enter a message")
+                    else:
+                        # default to conversation anon_by_default
+                        anon_flag = bool(anon_default)
+                        anon_name = get_or_create_anonymous_name(viewer) if anon_flag else None
+                        try:
+                            send_db_message(conv_id, viewer, content, is_anonymous=anon_flag, anon_name=anon_name)
+                            # Clear input and rerun so the UI resets for a new message
+                            st.session_state[key_in] = ""
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"Failed to send message: {e}")
 
 
 def render_conversations(viewer_info):
@@ -2663,18 +2656,17 @@ def render_conversations(viewer_info):
 
         col1, col2 = st.columns([3,1])
         with col1:
-            st.markdown(f"**{display}**")
-            # show last message preview
+            # Make the display itself a button so tapping opens the conversation (WhatsApp-like)
+            if st.button(display, key=f"open_conv_{conv_id}"):
+                st.session_state['open_conversation'] = conv_id
+                st.session_state['current_view'] = 'conversations'
+                st.rerun()
+            # show last message preview (content only)
             msgs = get_conversation_messages(conv_id)
             if msgs:
                 last = msgs[-1]
                 preview = last.get('content','')[:120]
                 st.caption(preview)
-        with col2:
-            if st.button("Open", key=f"open_conv_{conv_id}"):
-                st.session_state['open_conversation'] = conv_id
-                st.session_state['current_view'] = 'conversations'
-                st.rerun()
 
     # If an open conversation is set, render it below
     open_conv = st.session_state.get('open_conversation')
@@ -2720,17 +2712,17 @@ def render_chats(viewer_info):
                 avatar_char = display[0].upper() if display else friend[0].upper()
                 st.markdown(f"<div style='width:40px;height:40px;border-radius:50%;background:#ddd;display:flex;align-items:center;justify-content:center;font-weight:700;'>{escape(avatar_char)}</div>", unsafe_allow_html=True)
             with cols[1]:
-                st.markdown(f"**{escape(display)}**")
+                # Make contact name tappable to open conversation
+                if st.button(display, key=f"openchat_{viewer}_{friend}"):
+                    st.session_state['open_conversation'] = conv_id
+                    st.session_state['current_view'] = 'conversations'
+                    st.rerun()
                 bio = info.get('bio','')
                 if bio and not revealed:
                     st.caption(bio[:60])
             with cols[2]:
                 if unread:
                     st.markdown(f"<div style='background:#d9534f;color:white;padding:4px 8px;border-radius:12px;font-weight:700'>{unread}</div>", unsafe_allow_html=True)
-                if st.button("Open", key=f"openchat_{viewer}_{friend}"):
-                    st.session_state['open_conversation'] = conv_id
-                    st.session_state['current_view'] = 'conversations'
-                    st.rerun()
 
     # RIGHT: active conversation if set
     with right:
