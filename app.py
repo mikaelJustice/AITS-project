@@ -510,13 +510,20 @@ def sync_user_to_db(username):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT username FROM users WHERE username=?", (username,))
+    # Normalize profile_photo to a string path for sqlite storage
+    profile_photo_val = info.get('profile_photo', None)
+    if isinstance(profile_photo_val, dict):
+        profile_photo_db = profile_photo_val.get('path') or json.dumps(profile_photo_val)
+    else:
+        profile_photo_db = profile_photo_val
+
     if c.fetchone():
         # update
         c.execute("UPDATE users SET password=?, role=?, name=?, profile_photo=?, bio=?, created_at=? WHERE username=?",
-                  (info.get('password'), info.get('role'), info.get('name'), info.get('profile_photo', None), info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat()), username))
+                  (info.get('password'), info.get('role'), info.get('name'), profile_photo_db, info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat()), username))
     else:
         c.execute("INSERT INTO users (username, password, role, name, profile_photo, bio, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (username, info.get('password'), info.get('role'), info.get('name'), info.get('profile_photo', None), info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat())))
+                  (username, info.get('password'), info.get('role'), info.get('name'), profile_photo_db, info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat())))
     conn.commit()
     conn.close()
     return True
@@ -611,11 +618,17 @@ def update_profile(username, new_name=None, new_bio=None, profile_photo_meta=Non
     save_json(USERS_FILE, users)
     # sync into sqlite
     sync_user_to_db(username)
-    # also store photo in sqlite directly
+    # also store photo in sqlite directly (normalize dict -> path)
+    profile_photo_val = users[username].get('profile_photo')
+    if isinstance(profile_photo_val, dict):
+        profile_photo_db = profile_photo_val.get('path') or json.dumps(profile_photo_val)
+    else:
+        profile_photo_db = profile_photo_val
+
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("UPDATE users SET name=?, profile_photo=?, bio=? WHERE username=?",
-              (users[username].get('name'), users[username].get('profile_photo'), users[username].get('bio'), username))
+              (users[username].get('name'), profile_photo_db, users[username].get('bio'), username))
     conn.commit()
     conn.close()
     return True
