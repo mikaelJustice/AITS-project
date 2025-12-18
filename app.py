@@ -377,14 +377,28 @@ def save_media_file(uploaded_file):
     filename = getattr(uploaded_file, "name", "upload")
     safe_name = _sanitize_filename(filename)[:200]
 
-    # Get size
-    try:
-        size = uploaded_file.size
-    except Exception:
-        # Fallback: read buffer to get size
-        buf = uploaded_file.read()
+    # Prefer to use buffer if available to avoid consuming the stream twice
+    buf = None
+    size = None
+    if hasattr(uploaded_file, "getbuffer"):
+        buf = uploaded_file.getbuffer()
         size = len(buf)
-        # reset pointer by recreating a BytesIO if necessary - Streamlit uploaded file is small
+    else:
+        # read once and keep the bytes
+        try:
+            raw = uploaded_file.read()
+        except Exception:
+            # as a last resort try seeking and reading
+            try:
+                uploaded_file.seek(0)
+                raw = uploaded_file.read()
+            except Exception:
+                raw = b""
+        buf = raw
+        size = len(buf) if raw is not None else 0
+
+    if size is None:
+        size = 0
 
     if size > MAX_UPLOAD_BYTES:
         raise ValueError("File exceeds maximum allowed size of 30 MB")
@@ -394,15 +408,15 @@ def save_media_file(uploaded_file):
     dest_name = f"{unique}_{safe_name}"
     dest_path = UPLOAD_DIR / dest_name
 
-    # Write file
+    # Write file from the buffer we captured
     try:
         with open(dest_path, "wb") as f:
-            # If uploaded_file support .getbuffer use that for efficiency
-            if hasattr(uploaded_file, "getbuffer"):
-                f.write(uploaded_file.getbuffer())
+            if isinstance(buf, (bytes, bytearray)):
+                f.write(buf)
             else:
-                f.write(uploaded_file.read())
-    except Exception as e:
+                # memoryview or buffer-like
+                f.write(buf.tobytes())
+    except Exception:
         raise
 
     return {
@@ -1875,6 +1889,16 @@ def super_admin_interface(user_info):
                             "name": new_name
                         }
                         save_json(USERS_FILE, users)
+                        # Ensure SQLite mirror is created for consistent persistence
+                        try:
+                            sync_user_to_db(new_username)
+                        except Exception:
+                            pass
+                        # Ensure SQLite mirror is created for consistent persistence
+                        try:
+                            sync_user_to_db(new_username)
+                        except Exception:
+                            pass
                         st.success(f" User {new_username} created successfully!")
                     else:
                         st.error(" Username already exists")
@@ -2113,12 +2137,19 @@ def render_profile(viewer_info, viewed_username):
                 st.success("Now following")
                 st.rerun()
 
-        if st.button("Start Conversation", key=f"start_conv_{viewer}_{viewed_username}"):
-            conv_id, anon_default = create_or_get_conversation(viewer, viewed_username, anon_by_default=True)
-            st.success("Conversation opened")
-            # store current conversation in session state
-            st.session_state['open_conversation'] = conv_id
-            # optionally navigate to messages view (to be implemented)
+        # Only allow starting a private conversation when users are mutual followers (friends)
+        are_following = is_following(viewer, viewed_username)
+        are_followed_back = is_following(viewed_username, viewer)
+        if are_following and are_followed_back:
+            if st.button("Start Conversation", key=f"start_conv_{viewer}_{viewed_username}"):
+                conv_id, anon_default = create_or_get_conversation(viewer, viewed_username, anon_by_default=True)
+                st.success("Conversation opened")
+                st.session_state['open_conversation'] = conv_id
+        else:
+            if not are_following:
+                st.info("You are not following this user. Follow them to request a connection.")
+            elif not are_followed_back:
+                st.info("They are not following you back yet. If they follow you, you'll become friends and can message each other.")
     else:
         # Editing own profile
         st.markdown("---")
@@ -2146,6 +2177,62 @@ def render_profile(viewer_info, viewed_username):
             if st.button("Reset Anonymous Name", key=f"reset_anon_profile_{viewer}"):
                 new_name = reset_anonymous_name(viewer)
                 st.success(f"Anonymous name reset to {new_name}")
+                st.rerun()
+
+
+def render_people_directory(viewer_info):
+    """Render a searchable people directory where users can follow and view profiles."""
+    st.markdown("### People")
+    users = load_json(USERS_FILE)
+    search = st.text_input("Search users by username or name", key="people_search")
+
+    # Build a list of matching usernames
+    matches = []
+    for username, info in users.items():
+        if username == "superadmin":
+            continue
+        display = info.get('name', '')
+        if not search or (search.lower() in username.lower()) or (search.lower() in display.lower()):
+            matches.append((username, info))
+
+    if not matches:
+        st.info("No users found")
+        return
+
+    for username, info in matches:
+        col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
+        with col1:
+            photo = info.get('profile_photo')
+            if photo:
+                img_path = photo.get('path') if isinstance(photo, dict) else photo
+                try:
+                    st.image(img_path, width=60)
+                except Exception:
+                    st.write("")
+            else:
+                st.write("")
+        with col2:
+            st.markdown(f"**{info.get('name', username)}** (@{username})")
+            st.caption(info.get('role', ''))
+        with col3:
+            viewer = viewer_info['username']
+            if is_following(viewer, username):
+                if st.button("Unfollow", key=f"people_unfollow_{viewer}_{username}"):
+                    unfollow_user(viewer, username)
+                    st.success("Unfollowed")
+                    st.rerun()
+            else:
+                if st.button("Follow", key=f"people_follow_{viewer}_{username}"):
+                    follow_user(viewer, username)
+                    st.success("Now following")
+                    st.rerun()
+        with col4:
+            # Friend badge if mutual follow
+            if is_following(viewer, username) and is_following(username, viewer):
+                st.markdown("**Friend**")
+            if st.button("View Profile", key=f"viewprofile_{viewer}_{username}"):
+                st.session_state['profile_view_user'] = username
+                st.session_state['current_view'] = 'profile'
                 st.rerun()
 
 
@@ -2509,9 +2596,9 @@ def main():
                 st.rerun()
 
         with top_col4:
-            st.markdown('**About**', unsafe_allow_html=True)
-            if st.button("", key="nav_about", use_container_width=True, help="Community Guidelines"):
-                st.session_state['current_view'] = 'about'
+            st.markdown('**People**', unsafe_allow_html=True)
+            if st.button("", key="nav_people", use_container_width=True, help="Browse People"):
+                st.session_state['current_view'] = 'people'
                 st.rerun()
 
         with top_col5:
@@ -2572,6 +2659,9 @@ def main():
             st.subheader("👤 Profile")
             viewed_username = st.session_state.get('profile_view_user', user_info['username'])
             render_profile(user_info, viewed_username)
+
+        elif current_view == 'people':
+            render_people_directory(user_info)
 
         elif current_view == 'notifications':
             st.subheader("🔔 All Notifications")
