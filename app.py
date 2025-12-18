@@ -529,6 +529,29 @@ def sync_user_to_db(username):
     return True
 
 
+# ---------- Reveal management helpers ----------
+def get_revealed_list(username):
+    users = load_json(USERS_FILE)
+    return users.get(username, {}).get('revealed_to', [])
+
+
+def set_revealed_list(username, reveal_list):
+    users = load_json(USERS_FILE)
+    if username in users:
+        users[username]['revealed_to'] = list(reveal_list)
+        save_json(USERS_FILE, users)
+        try:
+            sync_user_to_db(username)
+        except Exception:
+            pass
+        return True
+    return False
+
+
+def has_revealed_to(viewed_username, viewer_username):
+    return viewer_username in get_revealed_list(viewed_username)
+
+
 def follow_user(follower, followee):
     if follower == followee:
         return False
@@ -2110,7 +2133,24 @@ def render_account_settings(user_info, role=None):
 def render_profile(viewer_info, viewed_username):
     """Render a user's profile with follow/unfollow and edit options"""
     profile = get_user_profile(viewed_username)
-    st.markdown(f"### {profile.get('name', viewed_username)} (@{viewed_username})")
+    viewer = viewer_info['username']
+
+    # Owner viewing their own profile sees full details
+    if viewer == viewed_username:
+        st.markdown(f"### {profile.get('name', viewed_username)} (@{viewed_username})")
+    else:
+        # By default show only anonymous identity: anonymous name, profile pic and bio.
+        # Real name and username are only shown if the viewed user has explicitly revealed to this viewer.
+        try:
+            revealed = has_revealed_to(viewed_username, viewer)
+        except Exception:
+            revealed = False
+
+        if revealed:
+            st.markdown(f"### {profile.get('name', viewed_username)} (@{viewed_username})")
+        else:
+            anon_name = get_or_create_anonymous_name(viewed_username)
+            st.markdown(f"### {anon_name} (Anonymous)")
 
     # Profile photo
     photo = profile.get('profile_photo')
@@ -2190,6 +2230,17 @@ def render_profile(viewer_info, viewed_username):
             if st.button("Reset Anonymous Name", key=f"reset_anon_profile_{viewer}"):
                 new_name = reset_anonymous_name(viewer)
                 st.success(f"Anonymous name reset to {new_name}")
+                st.rerun()
+            # Reveal management: choose specific users who may see your real name
+            st.markdown("---")
+            st.markdown("**Reveal Real Identity To (optional)**")
+            users = load_json(USERS_FILE)
+            all_other_users = [u for u in users.keys() if u != viewer]
+            current_revealed = get_revealed_list(viewer)
+            selected = st.multiselect("Select users to reveal your real identity to:", options=all_other_users, default=current_revealed, key=f"reveal_select_{viewer}")
+            if st.button("Update Reveal List", key=f"update_reveal_{viewer}"):
+                set_revealed_list(viewer, selected)
+                st.success("Reveal list updated")
                 st.rerun()
 
 
