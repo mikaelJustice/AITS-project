@@ -2568,7 +2568,6 @@ def render_conversation_view(conv_id, viewer_info):
         other_display = load_json(USERS_FILE).get(other, {}).get('name', other)
     else:
         other_display = get_or_create_anonymous_name(other)
-    st.markdown(f"### Conversation with {other_display}")
 
     # Mark conversation as read for viewer (opening it)
     try:
@@ -2576,45 +2575,69 @@ def render_conversation_view(conv_id, viewer_info):
     except Exception:
         pass
 
-    # Show messages
-    msgs = get_conversation_messages(conv_id)
-    box = st.container()
-    with box:
-        for m in msgs:
-            timestamp = m.get('created_at')
-            # Determine display name: if message is anonymous show anon_name; else show real name only if revealed
-            sender = m.get('sender')
-            if m.get('is_anonymous'):
-                sender_display = m.get('anon_name') or get_or_create_anonymous_name(sender)
-            else:
-                # check reveal
-                if has_revealed_to(sender, viewer):
-                    sender_display = load_json(USERS_FILE).get(sender, {}).get('name', sender)
-                else:
-                    sender_display = m.get('anon_name') or get_or_create_anonymous_name(sender)
+    # CSS for message bubbles
+    st.markdown("""
+    <style>
+    .chat-container { display: flex; flex-direction: column; gap: 8px; }
+    .msg-row { display:flex; }
+    .msg-bubble { max-width:70%; padding:10px 14px; border-radius:12px; }
+    .msg-left { justify-content: flex-start; }
+    .msg-right { justify-content: flex-end; }
+    .msg-left .msg-bubble { background: #f1f0f0; color: #000; border-top-left-radius:4px; }
+    .msg-right .msg-bubble { background: #0b93f6; color: #fff; border-top-right-radius:4px; }
+    .msg-meta { font-size:0.75rem; color:#666; margin-top:2px; }
+    .chat-header { font-weight:700; font-size:1.1rem; margin-bottom:8px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-            st.markdown(f"**{sender_display}** — {escape(m.get('content',''))}")
-            st.caption(timestamp)
+    st.markdown(f"<div class='chat-header'>Conversation with {escape(other_display)}</div>", unsafe_allow_html=True)
+
+    # Show messages as chat bubbles
+    msgs = get_conversation_messages(conv_id)
+    st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
+    for m in msgs:
+        sender = m.get('sender')
+        is_anon = m.get('is_anonymous')
+        anon_name_val = m.get('anon_name')
+        content = escape(m.get('content',''))
+        ts = m.get('created_at', '')
+
+        # Determine display name and side
+        if sender == viewer:
+            side = 'msg-right'
+        else:
+            side = 'msg-left'
+
+        if is_anon:
+            sender_display = anon_name_val or get_or_create_anonymous_name(sender)
+        else:
+            sender_display = load_json(USERS_FILE).get(sender, {}).get('name', sender) if has_revealed_to(sender, viewer) else (anon_name_val or get_or_create_anonymous_name(sender))
+
+        # Render bubble
+        st.markdown(f"<div class='msg-row {side}'><div class='msg-bubble'><strong>{escape(sender_display)}</strong><div style='margin-top:6px'>{content}</div><div class='msg-meta'>{ts}</div></div></div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-    # Send message box
+    # Input area
     key_in = f"conv_input_{conv_id}_{viewer}"
-    msg = st.text_input("Write a message", key=key_in)
-    anon_key = f"conv_anon_{conv_id}_{viewer}"
-    send_anon = st.checkbox("Send anonymously", value=bool(anon_default), key=anon_key)
-    if st.button("Send", key=f"send_conv_{conv_id}_{viewer}"):
-        content = st.session_state.get(key_in, "").strip()
-        if not content:
-            st.error("Please enter a message")
-        else:
-            anon_name = get_or_create_anonymous_name(viewer) if send_anon else None
-            try:
-                send_db_message(conv_id, viewer, content, is_anonymous=send_anon, anon_name=anon_name)
-                st.success("Message sent")
-                st.session_state[key_in] = ""
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to send message: {e}")
+    col_in1, col_in2 = st.columns([9,1])
+    with col_in1:
+        st.text_input("", key=key_in, placeholder="Type a message...")
+    with col_in2:
+        if st.button("Send", key=f"send_conv_{conv_id}_{viewer}"):
+            content = st.session_state.get(key_in, "").strip()
+            if not content:
+                st.error("Please enter a message")
+            else:
+                # default to conversation anon_by_default
+                anon_flag = bool(anon_default)
+                anon_name = get_or_create_anonymous_name(viewer) if anon_flag else None
+                try:
+                    send_db_message(conv_id, viewer, content, is_anonymous=anon_flag, anon_name=anon_name)
+                    st.session_state[key_in] = ""
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Failed to send message: {e}")
 
 
 def render_conversations(viewer_info):
@@ -2661,48 +2684,61 @@ def render_conversations(viewer_info):
 
 
 def render_chats(viewer_info):
-    """Show friends (mutual followers) and allow starting/opening conversations."""
+    """WhatsApp-like Chats view: left column chat list, right column thread."""
     viewer = viewer_info['username']
-    st.markdown("### Chats (Friends)")
-    # show users viewer follows and users who follow viewer (union)
+    users = load_json(USERS_FILE)
+
+    # Build contacts: union of following and followers
     following = set(get_following_list(viewer))
     followers = set(get_followers_list(viewer))
-    candidates = sorted(list(following.union(followers)))
+    contacts = sorted(list(following.union(followers)))
 
-    if not candidates:
-        st.info("No contacts yet. Follow users to see them here and start chats.")
-        return
+    # Layout: left narrow column for list, right for active conversation
+    left, right = st.columns([2.5, 7.5])
 
-    for friend in candidates:
-        info = load_json(USERS_FILE).get(friend, {})
-        # display anonymous name unless revealed
-        try:
-            revealed = has_revealed_to(friend, viewer)
-        except Exception:
-            revealed = False
-        if revealed:
-            display = info.get('name', friend)
-        else:
-            display = get_or_create_anonymous_name(friend)
+    # LEFT: search + contacts
+    with left:
+        st.markdown("### Chats")
+        search = st.text_input("Search chats", key="chat_search")
+        filtered = [c for c in contacts if (not search) or (search.lower() in c.lower()) or (search.lower() in users.get(c, {}).get('name','').lower())]
+        if not filtered:
+            st.info("No contacts found")
+        for friend in filtered:
+            info = users.get(friend, {})
+            try:
+                revealed = has_revealed_to(friend, viewer)
+            except Exception:
+                revealed = False
+            display = info.get('name', friend) if revealed else get_or_create_anonymous_name(friend)
 
-        col1, col2 = st.columns([3,1])
-        with col1:
-            # show unread count badge if any
             conv_id, _ = create_or_get_conversation(viewer, friend, anon_by_default=True)
             unread = get_unread_count_for_conversation(conv_id, viewer)
-            if unread:
-                st.markdown(f"**{display}**  •  🔴 {unread}")
-            else:
-                st.markdown(f"**{display}**")
-            bio = info.get('bio','')
-            if bio and not revealed:
-                st.caption(bio)
-        with col2:
-            if st.button("Chat", key=f"chat_{viewer}_{friend}"):
-                conv_id, _ = create_or_get_conversation(viewer, friend, anon_by_default=True)
-                st.session_state['open_conversation'] = conv_id
-                st.session_state['current_view'] = 'conversations'
-                st.rerun()
+
+            cols = st.columns([1,5,1])
+            with cols[0]:
+                # avatar circle
+                avatar_char = display[0].upper() if display else friend[0].upper()
+                st.markdown(f"<div style='width:40px;height:40px;border-radius:50%;background:#ddd;display:flex;align-items:center;justify-content:center;font-weight:700;'>{escape(avatar_char)}</div>", unsafe_allow_html=True)
+            with cols[1]:
+                st.markdown(f"**{escape(display)}**")
+                bio = info.get('bio','')
+                if bio and not revealed:
+                    st.caption(bio[:60])
+            with cols[2]:
+                if unread:
+                    st.markdown(f"<div style='background:#d9534f;color:white;padding:4px 8px;border-radius:12px;font-weight:700'>{unread}</div>", unsafe_allow_html=True)
+                if st.button("Open", key=f"openchat_{viewer}_{friend}"):
+                    st.session_state['open_conversation'] = conv_id
+                    st.session_state['current_view'] = 'conversations'
+                    st.rerun()
+
+    # RIGHT: active conversation if set
+    with right:
+        active = st.session_state.get('open_conversation')
+        if active:
+            render_conversation_view(active, viewer_info)
+        else:
+            st.info("Select a chat on the left to open the conversation.")
 
 def student_feed(user_info):
     """Student feed with post composer and messages"""
