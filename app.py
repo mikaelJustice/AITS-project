@@ -461,6 +461,37 @@ def create_or_get_conversation(user_a, user_b, anon_by_default=True):
     return conv_id, anon_by_default
 
 
+def get_user_conversations(username):
+    """Return list of conversation rows (id, user_a, user_b, anon_by_default, created_at) involving username"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, user_a, user_b, anon_by_default, created_at FROM conversations WHERE user_a=? OR user_b=? ORDER BY created_at DESC", (username, username))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_conversation_messages(conversation_id):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, sender, content, is_anonymous, anon_name, revealed, created_at FROM messages_db WHERE conversation_id=? ORDER BY created_at ASC", (conversation_id,))
+    rows = c.fetchall()
+    conn.close()
+    # return as list of dicts
+    msgs = []
+    for r in rows:
+        msgs.append({
+            'id': r[0],
+            'sender': r[1],
+            'content': r[2],
+            'is_anonymous': bool(r[3]),
+            'anon_name': r[4],
+            'revealed': bool(r[5]),
+            'created_at': r[6]
+        })
+    return msgs
+
+
 def send_db_message(conversation_id, sender, content, is_anonymous=None, anon_name=None, revealed=False):
     """Send a message in a conversation honoring the conversation's default anonymity.
 
@@ -2317,6 +2348,7 @@ def render_profile(viewer_info, viewed_username):
                 conv_id, anon_default = create_or_get_conversation(viewer, viewed_username, anon_by_default=True)
                 st.success("Conversation opened")
                 st.session_state['open_conversation'] = conv_id
+                st.session_state['current_view'] = 'conversations'
         else:
             if not are_following:
                 st.info("You are not following this user. Follow them to request a connection.")
@@ -2453,6 +2485,116 @@ def render_post_composer(user_info, role):
         st.markdown("*What's on your mind?*")
     
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_conversation_view(conv_id, viewer_info):
+    """Render a single conversation chat view with send box."""
+    viewer = viewer_info['username']
+    # Fetch conversation participants
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_a, user_b, anon_by_default FROM conversations WHERE id=?", (conv_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        st.error("Conversation not found")
+        return
+    ua, ub, anon_default = row
+    other = ua if viewer != ua else ub
+
+    # Header: show real name only if other revealed to viewer
+    try:
+        other_revealed = has_revealed_to(other, viewer)
+    except Exception:
+        other_revealed = False
+    if other_revealed:
+        other_display = load_json(USERS_FILE).get(other, {}).get('name', other)
+    else:
+        other_display = get_or_create_anonymous_name(other)
+    st.markdown(f"### Conversation with {other_display}")
+
+    # Show messages
+    msgs = get_conversation_messages(conv_id)
+    box = st.container()
+    with box:
+        for m in msgs:
+            timestamp = m.get('created_at')
+            # Determine display name: if message is anonymous show anon_name; else show real name only if revealed
+            sender = m.get('sender')
+            if m.get('is_anonymous'):
+                sender_display = m.get('anon_name') or get_or_create_anonymous_name(sender)
+            else:
+                # check reveal
+                if has_revealed_to(sender, viewer):
+                    sender_display = load_json(USERS_FILE).get(sender, {}).get('name', sender)
+                else:
+                    sender_display = m.get('anon_name') or get_or_create_anonymous_name(sender)
+
+            st.markdown(f"**{sender_display}** — {escape(m.get('content',''))}")
+            st.caption(timestamp)
+
+    st.markdown("---")
+    # Send message box
+    key_in = f"conv_input_{conv_id}_{viewer}"
+    msg = st.text_input("Write a message", key=key_in)
+    anon_key = f"conv_anon_{conv_id}_{viewer}"
+    send_anon = st.checkbox("Send anonymously", value=bool(anon_default), key=anon_key)
+    if st.button("Send", key=f"send_conv_{conv_id}_{viewer}"):
+        content = st.session_state.get(key_in, "").strip()
+        if not content:
+            st.error("Please enter a message")
+        else:
+            anon_name = get_or_create_anonymous_name(viewer) if send_anon else None
+            try:
+                send_db_message(conv_id, viewer, content, is_anonymous=send_anon, anon_name=anon_name)
+                st.success("Message sent")
+                st.session_state[key_in] = ""
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to send message: {e}")
+
+
+def render_conversations(viewer_info):
+    """List conversations and allow opening one."""
+    viewer = viewer_info['username']
+    st.markdown("### Conversations")
+    convs = get_user_conversations(viewer)
+    if not convs:
+        st.info("No conversations yet. Start one from a profile.")
+        return
+    for conv in convs:
+        conv_id, a, b, anon_by_default, created_at = conv
+        other = a if viewer != a else b
+        # Show other user's anon display unless revealed
+        try:
+            revealed = has_revealed_to(other, viewer)
+        except Exception:
+            revealed = False
+        if revealed:
+            display = load_json(USERS_FILE).get(other, {}).get('name', other)
+        else:
+            display = get_or_create_anonymous_name(other)
+
+        col1, col2 = st.columns([3,1])
+        with col1:
+            st.markdown(f"**{display}**")
+            # show last message preview
+            msgs = get_conversation_messages(conv_id)
+            if msgs:
+                last = msgs[-1]
+                preview = last.get('content','')[:120]
+                st.caption(preview)
+        with col2:
+            if st.button("Open", key=f"open_conv_{conv_id}"):
+                st.session_state['open_conversation'] = conv_id
+                st.session_state['current_view'] = 'conversations'
+                st.rerun()
+
+    # If an open conversation is set, render it below
+    open_conv = st.session_state.get('open_conversation')
+    if open_conv:
+        st.markdown("---")
+        render_conversation_view(open_conv, viewer_info)
 
 def student_feed(user_info):
     """Student feed with post composer and messages"""
@@ -2864,6 +3006,9 @@ def main():
 
         elif current_view == 'people':
             render_people_directory(user_info)
+
+        elif current_view == 'conversations':
+            render_conversations(user_info)
 
         elif current_view == 'notifications':
             st.subheader("🔔 All Notifications")
