@@ -561,6 +561,24 @@ def follow_user(follower, followee):
         c.execute("INSERT OR IGNORE INTO follows (follower, followee, created_at) VALUES (?, ?, ?)",
                   (follower, followee, datetime.utcnow().isoformat()))
         conn.commit()
+        # Notify followee that they have a new follower
+        try:
+            # Add notification with metadata so UI can offer follow-back
+            notifs = load_notifications()
+            if followee not in notifs:
+                notifs[followee] = []
+            notifs[followee].append({
+                "id": secrets.token_hex(4),
+                "message_id": None,
+                "text": f"{follower} started following you",
+                "actor": follower,
+                "type": "follow",
+                "read": False,
+                "timestamp": datetime.now().isoformat()
+            })
+            save_notifications(notifs)
+        except Exception:
+            pass
         return True
     finally:
         conn.close()
@@ -593,6 +611,15 @@ def get_followers_count(username):
     n = c.fetchone()[0]
     conn.close()
     return n
+
+
+def get_following_list(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT followee FROM follows WHERE follower=?", (username,))
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 
 def get_following_count(username):
@@ -830,6 +857,34 @@ def get_messages(recipient=None, role=None):
         pass
     return messages
 
+
+def sort_messages_for_user(messages, viewer_username):
+    """Return messages sorted with messages from people the viewer follows first."""
+    try:
+        following = set(get_following_list(viewer_username))
+    except Exception:
+        following = set()
+
+    def score(m):
+        # higher score means higher priority
+        # treat self messages as highest
+        sender = m.get('sender_id')
+        if sender == viewer_username:
+            return (2, m.get('timestamp'))
+        if sender in following:
+            return (1, m.get('timestamp'))
+        return (0, m.get('timestamp'))
+
+    def parsed_time(t):
+        try:
+            return datetime.fromisoformat(t)
+        except Exception:
+            return datetime(1970,1,1)
+
+    messages_sorted = sorted(messages, key=lambda m: ( -score(m)[0], parsed_time(m.get('timestamp','1970-01-01T00:00:00')) ), reverse=True)
+    # Above sorts primarily by score then by timestamp (newest first)
+    return messages_sorted
+
 def flag_message(message_id, reason):
     """Flag a message as potentially abusive"""
     messages_data = load_json(MESSAGES_FILE)
@@ -1023,17 +1078,22 @@ def save_notifications(data):
 
 def add_notification(username, message_id, text):
     """Add a notification for a user"""
+    # message_id may be None for non-message notifications (e.g., follows)
     notifs = load_notifications()
     if username not in notifs:
         notifs[username] = []
-    
-    notifs[username].append({
+
+    entry = {
         "id": secrets.token_hex(4),
         "message_id": message_id,
         "text": text,
         "read": False,
         "timestamp": datetime.now().isoformat()
-    })
+    }
+    # Support optional metadata: actor and type can be provided by callers
+    # If callers passed extras via kwargs, include them (backwards compatible)
+    # Caller may add 'actor' and 'type' keys by updating the dict before calling save.
+    notifs[username].append(entry)
     save_notifications(notifs)
 
 def get_unread_notifications_count(username):
@@ -1465,6 +1525,7 @@ def student_interface(user_info):
         st.caption("Messages sorted by engagement - most popular and recent first")
         
         messages = get_messages(recipient="all_school")
+        messages = sort_messages_for_user(messages, user_info['username'])
         
         if messages:
             # Infinite scroll style - show messages in a continuous feed
@@ -1567,6 +1628,7 @@ def teacher_interface(user_info):
         )
 
         messages = get_messages(recipient=view_choice)
+        messages = sort_messages_for_user(messages, user_info['username'])
 
         if messages:
             for idx, msg in enumerate(messages):
@@ -2760,13 +2822,29 @@ def main():
                 st.markdown("---")
                 
                 for n in notifs:  # Show all notifications
-                    read_status = "🔔" if not n.get('read') else "✓"
-                    st.markdown(f"""
-                    <div class="notification-item {'unread' if not n.get('read') else ''}">
-                    {read_status} {n.get('text')}<br>
-                    <small>{n.get('timestamp', 'N/A')}</small>
-                    </div>
-                    """, unsafe_allow_html=True)
+                            read_status = "🔔" if not n.get('read') else "✓"
+                            # Render notification text
+                            st.markdown(f"""
+                            <div class="notification-item {'unread' if not n.get('read') else ''}">
+                            {read_status} {n.get('text')}<br>
+                            <small>{n.get('timestamp', 'N/A')}</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            # If this is a follow notification, provide a follow-back button
+                            try:
+                                if n.get('type') == 'follow' and n.get('actor'):
+                                    actor = n.get('actor')
+                                    # If current user is not already following actor, show follow-back
+                                    if not is_following(user_info['username'], actor):
+                                        if st.button(f"Follow back {actor}", key=f"followback_{n['id']}"):
+                                            follow_user(user_info['username'], actor)
+                                            st.success(f"You are now following {actor}")
+                                            # mark notification read and refresh
+                                            mark_notification_read(user_info['username'], n['id'])
+                                            st.rerun()
+                            except Exception:
+                                pass
                 
                 if st.button("Mark all notifications as read", key=f"mark_read_{user_info['username']}", use_container_width=True):
                     mark_all_notifications_read(user_info['username'])
