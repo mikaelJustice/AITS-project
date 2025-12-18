@@ -2276,8 +2276,24 @@ def render_people_directory(viewer_info):
             else:
                 st.write("")
         with col2:
-            st.markdown(f"**{info.get('name', username)}** (@{username})")
-            st.caption(info.get('role', ''))
+            # Determine whether to show real identity or anonymous name
+            try:
+                revealed = has_revealed_to(username, viewer)
+            except Exception:
+                revealed = False
+
+            if viewer == username or revealed:
+                # Owner or explicitly revealed: show real name and username
+                st.markdown(f"**{info.get('name', username)}** (@{username})")
+                st.caption(info.get('role', ''))
+            else:
+                # Public browsing: only show anonymous identity, profile pic and bio
+                anon_name = get_or_create_anonymous_name(username)
+                st.markdown(f"**{anon_name}** (Anonymous)")
+                # optionally show role lightly or omit; we omit to maximize privacy
+                bio = info.get('bio', '')
+                if bio:
+                    st.caption(bio)
         with col3:
             viewer = viewer_info['username']
             if is_following(viewer, username):
