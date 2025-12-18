@@ -576,6 +576,27 @@ def send_db_message(conversation_id, sender, content, is_anonymous=None, anon_na
     return msg_id
 
 
+def delete_db_message(message_id, sender):
+    """Delete a message from a conversation (sender can delete their own message)."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Verify the message exists and belongs to sender
+    c.execute("SELECT sender FROM messages_db WHERE id=?", (message_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return False
+    msg_sender = row[0]
+    if msg_sender != sender:
+        conn.close()
+        return False
+    # Delete the message
+    c.execute("DELETE FROM messages_db WHERE id=?", (message_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
 # -------------------------
 # User & Follow helpers
 # -------------------------
@@ -2590,13 +2611,24 @@ def render_conversation_view(conv_id, viewer_info):
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"<div class='chat-header'>Conversation with {escape(other_display)}</div>", unsafe_allow_html=True)
+    # Header with name and unfollow button
+    col_h1, col_h2 = st.columns([4, 1])
+    with col_h1:
+        st.markdown(f"<div class='chat-header'>Conversation with {escape(other_display)}</div>", unsafe_allow_html=True)
+    with col_h2:
+        # Unfollow button if following
+        if is_following(viewer, other):
+            if st.button(f"Unfollow", key=f"unfollow_in_chat_{viewer}_{other}", help="Unfollow this user"):
+                unfollow_user(viewer, other)
+                st.success(f"Unfollowed {escape(other_display)}")
+                st.rerun()
 
     # Show messages as chat bubbles
     msgs = get_conversation_messages(conv_id)
     st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
     for m in msgs:
         sender = m.get('sender')
+        msg_id = m.get('id')
         is_anon = m.get('is_anonymous')
         anon_name_val = m.get('anon_name')
         content = escape(m.get('content',''))
@@ -2606,31 +2638,40 @@ def render_conversation_view(conv_id, viewer_info):
 
         # Render bubble with message content only (privacy-first, minimal UI)
         st.markdown(f"<div class='msg-row {side}'><div class='msg-bubble'>{content}</div></div>", unsafe_allow_html=True)
+        
+        # Delete button for message owner
+        if sender == viewer:
+            if st.button("🗑️ Delete", key=f"del_msg_{msg_id}", help="Delete this message"):
+                if delete_db_message(msg_id, viewer):
+                    st.success("Message deleted")
+                    st.rerun()
+                else:
+                    st.error("Could not delete message")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-    # Input area
-    key_in = f"conv_input_{conv_id}_{viewer}"
-    col_in1, col_in2 = st.columns([9,1])
-    with col_in1:
-        # Provide a non-empty label and hide it for accessibility
-        st.text_input("Message", key=key_in, placeholder="Type a message...", label_visibility="collapsed")
-    with col_in2:
-                if st.button("Send", key=f"send_conv_{conv_id}_{viewer}"):
-                    content = st.session_state.get(key_in, "").strip()
-                    if not content:
-                        st.error("Please enter a message")
-                    else:
-                        # default to conversation anon_by_default
-                        anon_flag = bool(anon_default)
-                        anon_name = get_or_create_anonymous_name(viewer) if anon_flag else None
-                        try:
-                            send_db_message(conv_id, viewer, content, is_anonymous=anon_flag, anon_name=anon_name)
-                            # Clear input and rerun so the UI resets for a new message
-                            st.session_state[key_in] = ""
-                            st.experimental_rerun()
-                        except Exception as e:
-                            st.error(f"Failed to send message: {e}")
+    # Input area using form to avoid session state modification issues
+    with st.form(key=f"msg_form_{conv_id}_{viewer}", clear_on_submit=True):
+        col_in1, col_in2 = st.columns([9, 1])
+        with col_in1:
+            # Provide a non-empty label and hide it for accessibility
+            content = st.text_input("Message", placeholder="Type a message...", label_visibility="collapsed")
+        with col_in2:
+            submitted = st.form_submit_button("Send")
+        
+        if submitted:
+            if not content or not content.strip():
+                st.error("Please enter a message")
+            else:
+                # default to conversation anon_by_default
+                anon_flag = bool(anon_default)
+                anon_name = get_or_create_anonymous_name(viewer) if anon_flag else None
+                try:
+                    send_db_message(conv_id, viewer, content.strip(), is_anonymous=anon_flag, anon_name=anon_name)
+                    st.success("Message sent!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to send message: {e}")
 
 
 def render_conversations(viewer_info):
@@ -2721,8 +2762,16 @@ def render_chats(viewer_info):
                 if bio and not revealed:
                     st.caption(bio[:60])
             with cols[2]:
-                if unread:
-                    st.markdown(f"<div style='background:#d9534f;color:white;padding:4px 8px;border-radius:12px;font-weight:700'>{unread}</div>", unsafe_allow_html=True)
+                col_unread, col_unf = st.columns([1, 1])
+                with col_unread:
+                    if unread > 0:
+                        st.markdown(f"<div style='background:#d9534f;color:white;padding:4px 8px;border-radius:12px;font-weight:700;text-align:center'>{unread}</div>", unsafe_allow_html=True)
+                with col_unf:
+                    if is_following(viewer, friend):
+                        if st.button("✕", key=f"unfollow_in_list_{viewer}_{friend}", help="Unfollow"):
+                            unfollow_user(viewer, friend)
+                            st.success("Unfollowed")
+                            st.rerun()
 
     # RIGHT: active conversation if set
     with right:
