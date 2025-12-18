@@ -564,14 +564,27 @@ def follow_user(follower, followee):
         # Notify followee that they have a new follower
         try:
             # Add notification with metadata so UI can offer follow-back
+            users = load_json(USERS_FILE)
+            # Determine actor display name: anonymous by default unless revealed to followee
+            try:
+                revealed = has_revealed_to(follower, followee)
+            except Exception:
+                revealed = False
+
+            if revealed:
+                actor_display = users.get(follower, {}).get('name', follower)
+            else:
+                actor_display = get_or_create_anonymous_name(follower)
+
             notifs = load_notifications()
             if followee not in notifs:
                 notifs[followee] = []
             notifs[followee].append({
                 "id": secrets.token_hex(4),
                 "message_id": None,
-                "text": f"{follower} started following you",
+                "text": f"{actor_display} started following you",
                 "actor": follower,
+                "actor_display": actor_display,
                 "type": "follow",
                 "read": False,
                 "timestamp": datetime.now().isoformat()
@@ -921,6 +934,50 @@ def add_reaction(message_id, user_id, emoji):
                 msg["reactions"][emoji].append(user_id)
             
             save_json(MESSAGES_FILE, messages_data)
+            # Send notification to message owner about the reaction (like)
+            try:
+                users = load_json(USERS_FILE)
+                # Determine owner username from message sender_id
+                owner_candidate = msg.get('sender_id')
+                owner_username = None
+                if owner_candidate in users:
+                    owner_username = owner_candidate
+                else:
+                    # try to match by real name
+                    for u, info in users.items():
+                        if info.get('name') == owner_candidate:
+                            owner_username = u
+                            break
+
+                if owner_username and owner_username != user_id:
+                    # Determine actor display (anonymous unless revealed to owner)
+                    try:
+                        revealed = has_revealed_to(user_id, owner_username)
+                    except Exception:
+                        revealed = False
+
+                    if revealed:
+                        actor_display = users.get(user_id, {}).get('name', user_id)
+                    else:
+                        actor_display = get_or_create_anonymous_name(user_id)
+
+                    notifs = load_notifications()
+                    if owner_username not in notifs:
+                        notifs[owner_username] = []
+                    notifs[owner_username].append({
+                        "id": secrets.token_hex(4),
+                        "message_id": message_id,
+                        "text": f"{actor_display} reacted {emoji} to your post",
+                        "actor": user_id,
+                        "actor_display": actor_display,
+                        "type": "reaction",
+                        "emoji": emoji,
+                        "read": False,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    save_notifications(notifs)
+            except Exception:
+                pass
             return True
     return False
 
@@ -2835,11 +2892,12 @@ def main():
                             try:
                                 if n.get('type') == 'follow' and n.get('actor'):
                                     actor = n.get('actor')
+                                    actor_display = n.get('actor_display', actor)
                                     # If current user is not already following actor, show follow-back
                                     if not is_following(user_info['username'], actor):
-                                        if st.button(f"Follow back {actor}", key=f"followback_{n['id']}"):
+                                        if st.button(f"Follow back {actor_display}", key=f"followback_{n['id']}"):
                                             follow_user(user_info['username'], actor)
-                                            st.success(f"You are now following {actor}")
+                                            st.success(f"You are now following {actor_display}")
                                             # mark notification read and refresh
                                             mark_notification_read(user_info['username'], n['id'])
                                             st.rerun()
