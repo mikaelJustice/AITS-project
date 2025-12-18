@@ -2250,6 +2250,9 @@ def render_people_directory(viewer_info):
     users = load_json(USERS_FILE)
     search = st.text_input("Search users by username or name", key="people_search")
 
+    # viewer username must be known for reveal/follow checks
+    viewer = viewer_info['username']
+
     # Build a list of matching usernames
     matches = []
     for username, info in users.items():
