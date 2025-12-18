@@ -714,6 +714,15 @@ def get_following_list(username):
     return [r[0] for r in rows]
 
 
+def get_followers_list(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT follower FROM follows WHERE followee=?", (username,))
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
 def get_following_count(username):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -2388,20 +2397,20 @@ def render_profile(viewer_info, viewed_username):
                 st.success("Now following")
                 st.rerun()
 
-        # Only allow starting a private conversation when users are mutual followers (friends)
-        are_following = is_following(viewer, viewed_username)
-        are_followed_back = is_following(viewed_username, viewer)
-        if are_following and are_followed_back:
-            if st.button("Start Conversation", key=f"start_conv_{viewer}_{viewed_username}"):
-                conv_id, anon_default = create_or_get_conversation(viewer, viewed_username, anon_by_default=True)
-                st.success("Conversation opened")
-                st.session_state['open_conversation'] = conv_id
-                st.session_state['current_view'] = 'conversations'
+        # Allow starting a conversation; privacy rules keep messages anonymous by default
+        if st.button("Start Conversation", key=f"start_conv_{viewer}_{viewed_username}"):
+            conv_id, anon_default = create_or_get_conversation(viewer, viewed_username, anon_by_default=True)
+            st.success("Conversation opened")
+            st.session_state['open_conversation'] = conv_id
+            st.session_state['current_view'] = 'conversations'
         else:
+            # helpful hints about follow status
+            are_following = is_following(viewer, viewed_username)
+            are_followed_back = is_following(viewed_username, viewer)
             if not are_following:
-                st.info("You are not following this user. Follow them to request a connection.")
+                st.info("You are not following this user. You can still message them, or follow to stay connected.")
             elif not are_followed_back:
-                st.info("They are not following you back yet. If they follow you, you'll become friends and can message each other.")
+                st.info("They are not following you back yet. If they follow you, you'll become friends.")
     else:
         # Editing own profile
         st.markdown("---")
@@ -2655,15 +2664,16 @@ def render_chats(viewer_info):
     """Show friends (mutual followers) and allow starting/opening conversations."""
     viewer = viewer_info['username']
     st.markdown("### Chats (Friends)")
-    # friends: users that viewer follows and who follow viewer
+    # show users viewer follows and users who follow viewer (union)
     following = set(get_following_list(viewer))
-    friends = [u for u in following if is_following(u, viewer)]
+    followers = set(get_followers_list(viewer))
+    candidates = sorted(list(following.union(followers)))
 
-    if not friends:
-        st.info("You have no friends yet. Follow users and have them follow you back to chat.")
+    if not candidates:
+        st.info("No contacts yet. Follow users to see them here and start chats.")
         return
 
-    for friend in friends:
+    for friend in candidates:
         info = load_json(USERS_FILE).get(friend, {})
         # display anonymous name unless revealed
         try:
