@@ -2,7 +2,7 @@ import streamlit as st
 import json
 import hashlib
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from html import escape
@@ -189,7 +189,7 @@ def save_json(filepath, data):
     # Create a timestamped backup for important files so we can restore later
     try:
         if filepath in (USERS_FILE, MESSAGES_FILE, ANONYMOUS_NAMES_FILE, NOTIFICATIONS_FILE):
-            ts = datetime.utcnow().isoformat().replace(':', '-')
+            ts = datetime.now(timezone.utc).isoformat().replace(':', '-')
             backup_path = BACKUP_DIR / f"{filepath.name}.{ts}.bak.json"
             with open(backup_path, 'w') as bf:
                 json.dump(data, bf, indent=2)
@@ -434,7 +434,7 @@ def save_media_file(uploaded_file):
         "path": str(dest_path),
         "mime": getattr(uploaded_file, "type", "application/octet-stream"),
         "size": size,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -464,7 +464,7 @@ def create_or_get_conversation(user_a, user_b, anon_by_default=True):
 
     conv_id = secrets.token_hex(8)
     c.execute("INSERT INTO conversations (id, user_a, user_b, anon_by_default, created_at) VALUES (?, ?, ?, ?, ?)",
-              (conv_id, ua, ub, 1 if anon_by_default else 0, datetime.utcnow().isoformat()))
+              (conv_id, ua, ub, 1 if anon_by_default else 0, datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return conv_id, anon_by_default
@@ -503,7 +503,7 @@ def get_conversation_messages(conversation_id):
 
 def set_conversation_read(conversation_id, username):
     """Set the last_read_at for a user in a conversation to now."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO conversation_reads (conversation_id, username, last_read_at) VALUES (?, ?, ?)", (conversation_id, username, now))
@@ -570,7 +570,7 @@ def send_db_message(conversation_id, sender, content, is_anonymous=None, anon_na
 
     msg_id = secrets.token_hex(8)
     c.execute("INSERT INTO messages_db (id, conversation_id, sender, content, is_anonymous, anon_name, revealed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-              (msg_id, conversation_id, sender, content, 1 if effective_anonymous else 0, anon_name if effective_anonymous else None, 1 if revealed else 0, datetime.utcnow().isoformat()))
+              (msg_id, conversation_id, sender, content, 1 if effective_anonymous else 0, anon_name if effective_anonymous else None, 1 if revealed else 0, datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return msg_id
@@ -599,10 +599,10 @@ def sync_user_to_db(username):
     if c.fetchone():
         # update
         c.execute("UPDATE users SET password=?, role=?, name=?, profile_photo=?, bio=?, created_at=? WHERE username=?",
-                  (info.get('password'), info.get('role'), info.get('name'), profile_photo_db, info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat()), username))
+                  (info.get('password'), info.get('role'), info.get('name'), profile_photo_db, info.get('bio', None), info.get('created_at', datetime.now(timezone.utc).isoformat()), username))
     else:
         c.execute("INSERT INTO users (username, password, role, name, profile_photo, bio, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (username, info.get('password'), info.get('role'), info.get('name'), profile_photo_db, info.get('bio', None), info.get('created_at', datetime.utcnow().isoformat())))
+                  (username, info.get('password'), info.get('role'), info.get('name'), profile_photo_db, info.get('bio', None), info.get('created_at', datetime.now(timezone.utc).isoformat())))
     conn.commit()
     conn.close()
     return True
@@ -638,7 +638,7 @@ def follow_user(follower, followee):
     c = conn.cursor()
     try:
         c.execute("INSERT OR IGNORE INTO follows (follower, followee, created_at) VALUES (?, ?, ?)",
-                  (follower, followee, datetime.utcnow().isoformat()))
+                  (follower, followee, datetime.now(timezone.utc).isoformat()))
         conn.commit()
         # Notify followee that they have a new follower
         try:
@@ -3125,6 +3125,9 @@ def main():
 
         elif current_view == 'people':
             render_people_directory(user_info)
+
+        elif current_view == 'chats':
+            render_chats(user_info)
 
         elif current_view == 'conversations':
             render_conversations(user_info)
