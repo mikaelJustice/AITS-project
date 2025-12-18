@@ -354,6 +354,15 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_reads (
+            conversation_id TEXT,
+            username TEXT,
+            last_read_at TEXT,
+            PRIMARY KEY (conversation_id, username)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -490,6 +499,45 @@ def get_conversation_messages(conversation_id):
             'created_at': r[6]
         })
     return msgs
+
+
+def set_conversation_read(conversation_id, username):
+    """Set the last_read_at for a user in a conversation to now."""
+    now = datetime.utcnow().isoformat()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO conversation_reads (conversation_id, username, last_read_at) VALUES (?, ?, ?)", (conversation_id, username, now))
+    conn.commit()
+    conn.close()
+
+
+def get_unread_count_for_conversation(conversation_id, username):
+    """Return count of messages in conversation newer than user's last_read_at."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT last_read_at FROM conversation_reads WHERE conversation_id=? AND username=?", (conversation_id, username))
+    row = c.fetchone()
+    last_read = None
+    if row:
+        last_read = row[0]
+
+    if last_read:
+        c.execute("SELECT COUNT(*) FROM messages_db WHERE conversation_id=? AND created_at> ?", (conversation_id, last_read))
+    else:
+        c.execute("SELECT COUNT(*) FROM messages_db WHERE conversation_id=?", (conversation_id,))
+    cnt = c.fetchone()[0]
+    conn.close()
+    return cnt
+
+
+def get_total_unread_conversations_count(username):
+    """Return total unread messages across all conversations for username."""
+    convs = get_user_conversations(username)
+    total = 0
+    for conv in convs:
+        conv_id = conv[0]
+        total += get_unread_count_for_conversation(conv_id, username)
+    return total
 
 
 def send_db_message(conversation_id, sender, content, is_anonymous=None, anon_name=None, revealed=False):
@@ -2513,6 +2561,12 @@ def render_conversation_view(conv_id, viewer_info):
         other_display = get_or_create_anonymous_name(other)
     st.markdown(f"### Conversation with {other_display}")
 
+    # Mark conversation as read for viewer (opening it)
+    try:
+        set_conversation_read(conv_id, viewer)
+    except Exception:
+        pass
+
     # Show messages
     msgs = get_conversation_messages(conv_id)
     box = st.container()
@@ -2595,6 +2649,50 @@ def render_conversations(viewer_info):
     if open_conv:
         st.markdown("---")
         render_conversation_view(open_conv, viewer_info)
+
+
+def render_chats(viewer_info):
+    """Show friends (mutual followers) and allow starting/opening conversations."""
+    viewer = viewer_info['username']
+    st.markdown("### Chats (Friends)")
+    # friends: users that viewer follows and who follow viewer
+    following = set(get_following_list(viewer))
+    friends = [u for u in following if is_following(u, viewer)]
+
+    if not friends:
+        st.info("You have no friends yet. Follow users and have them follow you back to chat.")
+        return
+
+    for friend in friends:
+        info = load_json(USERS_FILE).get(friend, {})
+        # display anonymous name unless revealed
+        try:
+            revealed = has_revealed_to(friend, viewer)
+        except Exception:
+            revealed = False
+        if revealed:
+            display = info.get('name', friend)
+        else:
+            display = get_or_create_anonymous_name(friend)
+
+        col1, col2 = st.columns([3,1])
+        with col1:
+            # show unread count badge if any
+            conv_id, _ = create_or_get_conversation(viewer, friend, anon_by_default=True)
+            unread = get_unread_count_for_conversation(conv_id, viewer)
+            if unread:
+                st.markdown(f"**{display}**  •  🔴 {unread}")
+            else:
+                st.markdown(f"**{display}**")
+            bio = info.get('bio','')
+            if bio and not revealed:
+                st.caption(bio)
+        with col2:
+            if st.button("Chat", key=f"chat_{viewer}_{friend}"):
+                conv_id, _ = create_or_get_conversation(viewer, friend, anon_by_default=True)
+                st.session_state['open_conversation'] = conv_id
+                st.session_state['current_view'] = 'conversations'
+                st.rerun()
 
 def student_feed(user_info):
     """Student feed with post composer and messages"""
@@ -2885,7 +2983,7 @@ def main():
         st.markdown("---")
         # wrapper ensures icons use currentColor and dark-mode rules
         st.markdown('<div class="topbar-wrapper">', unsafe_allow_html=True)
-        top_col1, top_col2, top_col3, top_col4, top_col5, top_col6 = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 1])
+        top_col1, top_col2, top_col3, top_col4, top_col5, top_col6, top_col7 = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1])
 
         # Top-bar styles: bold text buttons matching username display
         st.markdown("""
@@ -2946,13 +3044,24 @@ def main():
                 st.rerun()
 
         with top_col5:
+            try:
+                unread_conv = get_total_unread_conversations_count(user_info['username'])
+            except Exception:
+                unread_conv = 0
+            chats_label = f"**Chats** ({unread_conv})" if unread_conv > 0 else "**Chats**"
+            st.markdown(chats_label, unsafe_allow_html=True)
+            if st.button("", key="nav_chats", use_container_width=True, help="Open Chats"):
+                st.session_state['current_view'] = 'chats'
+                st.rerun()
+
+        with top_col6:
             st.markdown('**Profile**', unsafe_allow_html=True)
             if st.button(user_info['name'], key='nav_profile', use_container_width=True, help='View Profile'):
                 st.session_state['current_view'] = 'profile'
                 st.session_state['profile_view_user'] = user_info['username']
                 st.rerun()
 
-        with top_col6:
+        with top_col7:
             st.markdown('**Log Out**', unsafe_allow_html=True)
             if st.button("", key=f"logout_btn_{user_info['username']}", use_container_width=True, help="Log Out"):
                 st.session_state.authenticated = False
